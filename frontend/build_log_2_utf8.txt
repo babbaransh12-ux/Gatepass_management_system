@@ -1,0 +1,82 @@
+﻿Running Gradle task 'assembleDebug'...                          
+flutter : lib/features/war
+den/active_passes_screen.d
+art:126:18: Error: 
+Expected ':' before this.
+At line:1 char:1
++ flutter build apk 
+--debug > build_log_2.txt 
+2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo        
+      : NotSpecified: (l  
+  ib/features/wa...:' b   
+ efore this.:String) [    
+], RemoteException
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+                ),
+                 ^
+lib/features/warden/active
+_passes_screen.dart:126:18
+: Error: Expected an 
+identifier, but got ','.
+Try inserting an 
+identifier before ','.
+                ),
+                 ^
+lib/features/warden/active
+_passes_screen.dart:45:19:
+ Error: A value of type 
+'Center' can't be 
+assigned to a variable of 
+type 'bool'.
+ - 'Center' is from 'packa
+ge:flutter/src/widgets/bas
+ic.dart' ('../../../Downlo
+ads/flutter_windows_3.38.7
+-stable/flutter/packages/f
+lutter/lib/src/widgets/bas
+ic.dart').
+          ? const 
+Center(child: CircularProg
+ressIndicator())
+                  ^
+Target 
+kernel_snapshot_program 
+failed: Exception
+
+
+FAILURE: Build failed 
+with an exception.
+
+* What went wrong:
+Execution failed for task 
+':app:compileFlutterBuildD
+ebug'.
+> Process 'command 'C:\Use
+rs\babba\Downloads\flutter
+_windows_3.38.7-stable\flu
+tter\bin\flutter.bat'' 
+finished with non-zero 
+exit value 1
+
+* Try:
+> Run with --stacktrace 
+option to get the stack 
+trace.
+> Run with --info or 
+--debug option to get 
+more log output.
+> Run with --scan to get 
+full insights.
+> Get more help at 
+https://help.gradle.org.
+
+BUILD FAILED in 6s
+Running Gradle task 'assembleDebug'...                              6.7s
+Gradle task assembleDebug 
+failed with exit code 1

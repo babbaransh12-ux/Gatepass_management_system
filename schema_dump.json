@@ -1,0 +1,37 @@
+{
+    "Student": [
+        "AU_id",
+        "created_at",
+        "Name",
+        "Phone",
+        "Department",
+        "Course",
+        "Email_id",
+        "Room_no",
+        "status",
+        "Parent_id",
+        "Gender",
+        "Student_image",
+        "device_id"
+    ],
+    "Parent": [
+        "Parent_id",
+        "created_at",
+        "Name",
+        "Address",
+        "Phone",
+        "Relation"
+    ],
+    "User": "Error: {'code': 'PGRST205', 'details': None, 'hint': None, 'message': \"Could not find the table 'public.User' in the schema cache\"}",
+    "Leave_request": [
+        "Req_id",
+        "created_at",
+        "Status",
+        "AU_id",
+        "Warden_id",
+        "Reason",
+        "Days",
+        "leave_date",
+        "Destination"
+    ]
+}
