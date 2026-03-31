@@ -1,1 +1,0 @@
-{"Student": ["AU_id", "created_at", "Name", "Phone", "Department", "Course", "Email_id", "Room_no", "status", "Parent_id", "Gender", "Student_image"], "Leave_request": ["Req_id", "created_at", "Status", "AU_id", "Warden_id", "Reason", "Days", "leave_date", "Destination"], "Parent": [], "Gate_log": []}

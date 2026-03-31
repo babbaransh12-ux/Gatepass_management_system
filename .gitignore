@@ -52,3 +52,29 @@ frontend/.dart_tool/
 frontend/.gradle/
 frontend/.idea/
 frontend/.metadata
+
+# Debug and Temporary Files (Root)
+debug_*.py
+debug_*.json
+debug.py
+debug.json
+debug_out.txt
+check_schema.py
+schema_dump.json
+schema_log.txt
+test.py
+verify_db.py
+verify_twilio.py
+tmp/
+
+# Backend temporary files
+backend/debug_twilio.py
+backend/schema_actual.json
+backend/schema_dump.json
+
+# Frontend build logs
+frontend/*.log
+frontend/*.txt
+!frontend/analysis_options.yaml
+!frontend/pubspec.yaml
+
