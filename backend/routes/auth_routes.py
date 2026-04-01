@@ -52,15 +52,22 @@ def login(data: LoginRequest):
             if password != "warden123":
                 raise HTTPException(status_code=401, detail="Invalid password")
             
+            # Clean UID if it's a string like "W-01"
+            clean_uid = uid
+            if isinstance(uid, str) and "-" in uid:
+                try:
+                    clean_uid = int(uid.split("-")[-1])
+                except: pass
+
             try:
-                w_res = sb.table("Warden").select("Gender").eq("warden_id", uid).execute()
+                w_res = sb.table("Warden").select("Gender").eq("warden_id", clean_uid).execute()
                 gender = w_res.data[0].get("Gender", "Male") if w_res.data else "Male"
             except Exception as e:
                 print(f"Warning: Warden Gender column error: {e}")
                 gender = "Male"
 
             token = jwt.encode({
-                "user_id": uid, 
+                "user_id": clean_uid, 
                 "role": role, 
                 "gender": gender,
                 "exp": datetime.utcnow() + timedelta(days=7)

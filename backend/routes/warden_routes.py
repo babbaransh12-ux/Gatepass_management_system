@@ -16,9 +16,14 @@ def get_pending(current_user: dict = Depends(get_current_user)):
         # GENDER-BASED ROUTING: Only show students that match the logged-in Warden's gender.
         
         # 1. Fetch only Parent_Approved requests assigned to THIS warden
+        w_id = current_user.get("user_id")
+        try:
+            w_id = int(str(w_id).split("-")[-1]) if "-" in str(w_id) else int(w_id)
+        except: pass
+
         res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, Reason, leave_date, Status")\
             .eq("Status", "Parent_Approved")\
-            .eq("Warden_id", current_user.get("user_id"))\
+            .eq("Warden_id", w_id)\
             .execute()
         
         data = []
@@ -175,6 +180,12 @@ def emergency_pass(data: EmergencyPassRequest, current_user: dict = Depends(get_
             
         token, _ = generate_qr()
         
+        # Clean UID if it's a string like "W-01"
+        w_id = current_user.get("user_id")
+        try:
+            w_id = int(str(w_id).split("-")[-1]) if "-" in str(w_id) else int(w_id)
+        except: pass
+
         insert_data = {
             "AU_id": data.student_id,
             "Destination": data.destination,
@@ -182,7 +193,8 @@ def emergency_pass(data: EmergencyPassRequest, current_user: dict = Depends(get_
             "Days": 1,
             "Status": "Approved",
             "leave_date": datetime.now().strftime('%Y-%m-%d'),
-            "qr_token": token
+            "qr_token": token,
+            "Warden_id": w_id
         }
         
         try:

@@ -8,3 +8,4 @@ twilio==8.2.1
 qrcode[pil]==7.4.2
 PyJWT==2.8.0
 python-multipart==0.0.9
+pyngrok==7.1.6

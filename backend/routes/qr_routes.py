@@ -99,15 +99,27 @@ def scan(token: str, action: Optional[str] = Query(None), current_user: dict = D
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        # Robust Gate_log insertion
+        log_success = False
         try:
             sb.table("Gate_log").insert({"leave_request_id": req_id, "action": action, "scanned_at": now}).execute()
-        except Exception:
-            sb.table("Gate_log").insert({"req_id": req_id, "Action": action, "Timestamp": now}).execute()
+            log_success = True
+        except Exception as e1:
+            print(f"DEBUG: Gate_log primary insert failed: {e1}")
+            try:
+                sb.table("Gate_log").insert({"req_id": req_id, "Action": action, "Timestamp": now}).execute()
+                log_success = True
+            except Exception as e2:
+                print(f"DEBUG: Gate_log fallback insert failed: {e2}")
 
-        if action == "exit":
-            sb.table("Leave_request").update({"Status": "Exit"}).eq("Req_id", req_id).execute()
-        elif action == "entry":
-            sb.table("Leave_request").update({"Status": "Expired"}).eq("Req_id", req_id).execute()
+        # Update Request Status
+        try:
+            if action == "exit":
+                sb.table("Leave_request").update({"Status": "Exit"}).eq("Req_id", req_id).execute()
+            elif action == "entry":
+                sb.table("Leave_request").update({"Status": "Expired"}).eq("Req_id", req_id).execute()
+        except Exception as status_err:
+            print(f"DEBUG: Status update failed: {status_err}")
 
         if phone:
             sms_text = get_message(lang, action, name)

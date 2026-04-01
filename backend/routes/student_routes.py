@@ -94,7 +94,7 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
 
 @router.post("/update-profile-pic")
 @router.post("/upload-image")
-def update_profile_pic(
+async def update_profile_pic(
     student_id: Optional[str] = Form(None),
     image: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
@@ -104,7 +104,7 @@ def update_profile_pic(
         if not final_student_id:
              raise HTTPException(status_code=400, detail="Student ID missing")
             
-        file_bytes = image.file.read()
+        file_bytes = await image.read()
         ext = image.filename.rsplit('.', 1)[1].lower() if '.' in image.filename else 'jpg'
         file_name = f"{final_student_id}_{uuid.uuid4().hex[:8]}.{ext}"
         
@@ -115,17 +115,32 @@ def update_profile_pic(
             if file_name.lower().endswith('.png'): mimetype = "image/png"
             elif file_name.lower().endswith('.webp'): mimetype = "image/webp"
 
-        sb.storage.from_("Student").upload(
-            file_name,
-            file_bytes,
-            {"content-type": mimetype}
-        )
+        try:
+            # Check if bucket exists/accessible by trying to upload
+            sb.storage.from_("Student").upload(
+                file_name,
+                file_bytes,
+                {"content-type": mimetype}
+            )
+        except Exception as storage_err:
+            print(f"DEBUG: Supabase Storage Error: {storage_err}")
+            # If upload failed, maybe bucket doesn't exist or RLS issue
+            raise HTTPException(status_code=500, detail=f"Storage upload failed: {str(storage_err)}")
         
         public_url = sb.storage.from_("Student").get_public_url(file_name)
+        
+        # In some versions of supabase-py, get_public_url might return a string or an object
+        # With 2.4.5 it should be a string, but let's be safe
+        if not isinstance(public_url, str):
+            public_url = getattr(public_url, "public_url", str(public_url))
+
         sb.table("Student").update({"Student_image": public_url}).eq("AU_id", final_student_id).execute()
         
         return {"status": "success", "message": "Profile picture updated successfully", "profile_url": public_url}
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"DEBUG: Profile Pic Upload Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/request")

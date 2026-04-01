@@ -67,10 +67,15 @@ def create_gatepass(student_id, destination, reason, days, contact, language, le
         warden_lookup = sb.table("Warden").select("*").eq("Gender", gender).limit(1).execute()
         
         if warden_lookup.data:
-            assigned_warden = warden_lookup.data[0].get("warden_id") or warden_lookup.data[0].get("Warden_id")
+            # Fallback to integer 1 if ID lookup fails
+            raw_vid = warden_lookup.data[0].get("warden_id") or warden_lookup.data[0].get("Warden_id")
+            try:
+                assigned_warden = int(raw_vid)
+            except:
+                assigned_warden = 1
         else:
             # Fallback to a default if no gender-specific warden exists
-            assigned_warden = "W-01" 
+            assigned_warden = 1 
         
         print(f"DEBUG: Routing to Warden {assigned_warden} for gender {gender}")
 
