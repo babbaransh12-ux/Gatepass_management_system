@@ -11,6 +11,8 @@ class LeaveRequestModel {
   final String parentPhone;
   final String studentImage;
   final String status;
+  final String? gender;
+  final String? department;
 
   LeaveRequestModel({
     required this.requestId,
@@ -24,6 +26,8 @@ class LeaveRequestModel {
     required this.parentPhone,
     required this.studentImage,
     required this.status,
+    this.gender,
+    this.department,
   });
 
   static String _formatDuration(dynamic val) {
@@ -58,6 +62,8 @@ class LeaveRequestModel {
       parentPhone: json['parent_phone'] ?? '',
       studentImage: json['profile_url'] ?? json['student_image'] ?? 'https://ui-avatars.com/api/?name=${json['student_name'] ?? 'Student'}',
       status: json['Status'] ?? json['status'] ?? 'Pending',
+      gender: json['gender'] ?? json['Gender'],
+      department: json['department'] ?? json['Department'] ?? json['Dept'],
     );
   }
 

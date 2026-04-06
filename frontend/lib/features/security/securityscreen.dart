@@ -1,8 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'dart:async';
+import 'package:intl/intl.dart';
 import '../../core/navigation/logout_button.dart';
 import '../../data/api/api_client.dart';
+
+extension StringExtension on String {
+  String capitalize() {
+    return "${this[0].toUpperCase()}${substring(1).toLowerCase()}";
+  }
+}
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -17,32 +24,51 @@ class _SecurityScreenState extends State<SecurityScreen> {
   bool _isLoading = false;
   String scanResult = "Scan student QR code";
   String? _lastScannedToken;
+  Map<String, dynamic>? _lastScannedStudent;
+  List<dynamic> _recentLogs = [];
   Map<String, dynamic>? _currentEmergency;
   Timer? _pollingTimer;
+  final MobileScannerController scannerController = MobileScannerController();
+  bool _canUndo = false;
+  String? _undoToken;
 
   @override
   void initState() {
     super.initState();
     _startPolling();
+    _fetchRecentLogs();
+  }
+
+  Future<void> _fetchRecentLogs() async {
+    try {
+      final logs = await ApiClient.get("/qr/recent-logs");
+      if (logs is List) {
+        if (mounted) setState(() => _recentLogs = logs);
+      }
+    } catch (e) {
+      debugPrint("Error fetching logs: $e");
+    }
   }
 
   void _startPolling() {
      _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
          try {
             final res = await ApiClient.get("/qr/active-emergencies");
-            if(res is List && res.isNotEmpty) {
-                 if (mounted) {
-                   setState(() {
-                     _currentEmergency = res.first;
-                   });
-                 }
-            } else {
-                 if (mounted && _currentEmergency != null) {
-                   setState(() {
-                     _currentEmergency = null;
-                   });
-                 }
-            }
+             if(res is List && res.isNotEmpty) {
+                  if (mounted) {
+                    setState(() {
+                      _currentEmergency = res.first;
+                    });
+                    scannerController.stop(); // 🛑 STOP SCANNER TO FIX LAG
+                  }
+             } else {
+                  if (mounted && _currentEmergency != null) {
+                    setState(() {
+                      _currentEmergency = null;
+                    });
+                    scannerController.start(); // ▶️ RESUME SCANNER
+                  }
+             }
          } catch(e) {}
      });
   }
@@ -52,38 +78,80 @@ class _SecurityScreenState extends State<SecurityScreen> {
   @override
   void dispose() {
      _pollingTimer?.cancel();
+     scannerController.dispose();
      super.dispose();
   }
 
   Future<void> processQR(String code, {String? action}) async {
     setState(() {
       _isLoading = true;
-      scanResult = "Verifying QR from Database...";
+      scanResult = action == null ? "Fetching Student Identity..." : "Recording ${action.capitalize()}...";
       _lastScannedToken = code;
     });
 
     try {
-      String endpoint = "/qr/scan/$code";
-      if (action != null) endpoint += "?action=$action";
-      
-      final response = await ApiClient.get(endpoint);
-      
-      setState(() {
-        if (response['status'] == 'success') {
-           scanResult = "✅ ${response['message']}";
-        } else {
-           scanResult = "❌ ${response['message'] ?? 'Invalid QR Gatepass'}";
-        }
-      });
-
+      if (action == null) {
+        // Step 1: Initial Scan - Just fetch info
+        final response = await ApiClient.get("/qr/scan/$code");
+        setState(() {
+          if (response != null && response['status'] == 'success') {
+             scanResult = "Student Identity Verified";
+             _lastScannedStudent = response;
+          } else {
+             final msg = response?['message'] ?? response?['detail'] ?? 'Invalid QR Gatepass';
+             scanResult = "❌ $msg";
+             _lastScannedStudent = null;
+          }
+        });
+      } else {
+        // Step 2: Confirmation - Update DB
+        final response = await ApiClient.post("/qr/scan/$code?action=$action", {});
+        setState(() {
+          if (response != null && response['status'] == 'success') {
+             scanResult = "✅ ${response['message']}";
+             _canUndo = true;
+             _undoToken = code;
+             _fetchRecentLogs();
+             // Reset profile after 2 seconds or on next scan
+             Future.delayed(const Duration(seconds: 3), () {
+                if (mounted && scanResult.contains("✅")) {
+                   setState(() {
+                      scanned = false;
+                      _lastScannedStudent = null;
+                      scanResult = "Scan student QR code";
+                   });
+                   scannerController.start();
+                }
+             });
+          } else {
+             scanResult = "❌ Error: ${response?['message'] ?? 'Failed to update'}";
+          }
+        });
+      }
     } catch(e) {
-      setState(() {
-         scanResult = "❌ Server Connection Error";
-      });
+      setState(() => scanResult = "❌ Error: ${e.toString().split(':').last.trim()}");
     } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _undoLastScan() async {
+    if (_undoToken == null) return;
+    setState(() => _isLoading = true);
+    try {
+      await ApiClient.post("/qr/undo-scan/$_undoToken", {});
       setState(() {
-        _isLoading = false;
+        _canUndo = false;
+        scanResult = "⏪ Last scan reverted";
+        _lastScannedStudent = null;
+        scanned = false;
       });
+      _fetchRecentLogs();
+      scannerController.start();
+    } catch (e) {
+      debugPrint("Undo failed: $e");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -113,8 +181,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   alignment: Alignment.center,
                   children: [
                     MobileScanner(
+                      controller: scannerController,
                       onDetect: (BarcodeCapture capture) {
-                        if (scanned) return;
+                        if (scanned || _currentEmergency != null) return;
                         final List<Barcode> barcodes = capture.barcodes;
                         for (final barcode in barcodes) {
                           if (barcode.rawValue != null) {
@@ -134,7 +203,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
               // RESULT AREA
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
                 decoration: const BoxDecoration(
                   color: Color(0xFF1C1F26),
                   borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
@@ -143,7 +212,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _buildResultCard(),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     Row(
                       children: [
                         Expanded(
@@ -152,10 +221,12 @@ class _SecurityScreenState extends State<SecurityScreen> {
                               setState(() {
                                 scanned = false;
                                 scanResult = "Ready to Scan";
+                                _lastScannedStudent = null;
                               });
+                              scannerController.start();
                             },
                             icon: const Icon(Icons.refresh_rounded, size: 18),
-                            label: const Text("Scan Again"),
+                            label: const Text("Scan Next"),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white.withOpacity(0.1),
                               foregroundColor: Colors.white,
@@ -165,38 +236,41 @@ class _SecurityScreenState extends State<SecurityScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () async {
-                              setState(() => _isLoading = true);
-                              try {
-                                final res = await ApiClient.get("/qr/active-emergencies");
-                                if (res is List && res.isNotEmpty) {
-                                  if (mounted) {
-                                    setState(() => _currentEmergency = res.first);
-                                  }
-                                } else {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No active emergencies")));
-                                }
-                              } catch (e) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-                              } finally {
-                                if (mounted) setState(() => _isLoading = false);
-                              }
-                            },
-                            icon: const Icon(Icons.emergency_rounded, size: 18),
-                            label: const Text("Emergency"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent.withOpacity(0.15),
-                              foregroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              side: BorderSide(color: Colors.redAccent.withOpacity(0.3)),
-                            ),
+                        IconButton(
+                          onPressed: () {
+                             _showEmergencyDialog();
+                          },
+                          icon: const Icon(Icons.emergency_rounded, color: Colors.redAccent),
+                          tooltip: "Emergency Pass",
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.redAccent.withOpacity(0.1),
+                            padding: const EdgeInsets.all(12),
                           ),
                         ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          onPressed: _fetchRecentLogs,
+                          icon: const Icon(Icons.history_rounded, color: Colors.white70),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.white.withOpacity(0.05),
+                            padding: const EdgeInsets.all(12),
+                          ),
+                        ),
+                        if (_canUndo) ...[
+                          const SizedBox(width: 12),
+                          IconButton(
+                            onPressed: _undoLastScan,
+                            icon: const Icon(Icons.undo_rounded, color: Colors.orangeAccent),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.orangeAccent.withOpacity(0.1),
+                              padding: const EdgeInsets.all(12),
+                            ),
+                          ),
+                        ]
                       ],
                     ),
+                    const SizedBox(height: 24),
+                    _buildRecentLogsSection(),
                   ],
                 ),
               ),
@@ -238,7 +312,10 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.white70),
-                  onPressed: () => setState(() => _currentEmergency = null),
+                  onPressed: () {
+                    setState(() => _currentEmergency = null);
+                    scannerController.start();
+                  },
                 ),
               ],
             ),
@@ -253,7 +330,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.red.shade900),
-                    onPressed: () => processQR(emergency['qr_token'], action: "exit"),
+                    onPressed: () {
+                      processQR(emergency['qr_token'], action: "exit");
+                      setState(() => _currentEmergency = null);
+                      scannerController.start();
+                    },
                     child: const Text("Mark Exit", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
@@ -261,7 +342,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.2), foregroundColor: Colors.white),
-                    onPressed: () => processQR(emergency['qr_token'], action: "entry"),
+                    onPressed: () {
+                      processQR(emergency['qr_token'], action: "entry");
+                      setState(() => _currentEmergency = null);
+                      scannerController.start();
+                    },
                     child: const Text("Mark Entry", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
@@ -273,10 +358,82 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 
+  Widget _buildRecentLogsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.access_time_rounded, color: Colors.white38, size: 16),
+            SizedBox(width: 8),
+            Text("RECENT ENTRIES", style: TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 140,
+          child: _recentLogs.isEmpty
+              ? const Center(child: Text("No recent entries", style: TextStyle(color: Colors.white24, fontSize: 13)))
+              : ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _recentLogs.length,
+                  separatorBuilder: (context, index) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final log = _recentLogs[index];
+                    String time = "";
+                    try {
+                        DateTime dt = DateTime.parse(log['timestamp']);
+                        time = DateFormat("h:mm a").format(dt);
+                    } catch(e) {}
+                    
+                    bool isEntry = log['action'].toString().toLowerCase().contains('entry');
+
+                    return Container(
+                      width: 110,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.03),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundImage: NetworkImage(log['student_image']),
+                            backgroundColor: Colors.white10,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            log['student_name'].split(' ').first,
+                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isEntry ? "ENTRY" : "EXIT",
+                            style: TextStyle(color: isEntry ? Colors.blueAccent : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.w900),
+                          ),
+                          Text(time, style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildResultCard() {
-    bool isSuccess = scanResult.contains("✅");
+    bool isSuccess = scanResult.contains("✅") || scanResult == "Student Identity Verified";
     bool isError = scanResult.contains("❌");
     Color accentColor = isSuccess ? Colors.greenAccent : (isError ? Colors.redAccent : Colors.blueAccent);
+
+    if (isSuccess && _lastScannedStudent != null) {
+      return _buildProfileResult(_lastScannedStudent!);
+    }
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -311,35 +468,162 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   scanResult.replaceAll("✅", "").replaceAll("❌", "").trim(),
                   style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
                 ),
-                if (isSuccess) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      TextButton.icon(
-                        onPressed: () {
-                           if (_lastScannedToken != null) {
-                             processQR(_lastScannedToken!, action: "exit");
-                           }
-                        },
-                        icon: const Icon(Icons.logout_rounded, size: 16),
-                        label: const Text("Force Exit", style: TextStyle(fontSize: 12)),
-                        style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                      ),
-                      TextButton.icon(
-                        onPressed: () {
-                           if (_lastScannedToken != null) {
-                             processQR(_lastScannedToken!, action: "entry");
-                           }
-                        },
-                        icon: const Icon(Icons.login_rounded, size: 16),
-                        label: const Text("Force Entry", style: TextStyle(fontSize: 12)),
-                        style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                      ),
-                    ],
-                  )
-                ]
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileResult(Map<String, dynamic> data) {
+    final student = data['student'];
+    final req = data['request'];
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 85,
+                height: 85,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF2D5AF0), width: 2),
+                  image: DecorationImage(
+                    image: NetworkImage(student['photo'] ?? 'https://ui-avatars.com/api/?name=${student['name']}'),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      student['name'].toString().toUpperCase(),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "ID: ${student['uid']}",
+                      style: const TextStyle(color: Colors.white60, fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      student['dept'] ?? "General",
+                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => processQR(_lastScannedToken!, action: "entry"),
+                  icon: const Icon(Icons.login_rounded, size: 18),
+                  label: const Text("Confirm Entry"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => processQR(_lastScannedToken!, action: "exit"),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text("Confirm Exit"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  scanned = false;
+                  _lastScannedStudent = null;
+                  scanResult = "Scan student QR code";
+                });
+                scannerController.start();
+              },
+              icon: const Icon(Icons.close_rounded, size: 18),
+              label: const Text("Reject / Clear"),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEmergencyDialog() {
+    final TextEditingController _uidController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1F26),
+        title: const Text("Manual Emergency Pass", style: TextStyle(color: Colors.redAccent)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Enter Student ID to fetch their gatepass manually.", style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _uidController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "Enter UID (e.g. 23BDS001)",
+                hintStyle: const TextStyle(color: Colors.white24),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              final uid = _uidController.text.trim();
+              if (uid.isNotEmpty) {
+                 Navigator.pop(ctx);
+                 processQR(uid);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text("Search"),
           ),
         ],
       ),

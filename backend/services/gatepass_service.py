@@ -44,16 +44,33 @@ def create_gatepass(student_id, destination, reason, days, contact, language, le
         parent_id = s.get("Parent_id")
         
         # check parent phone
-        # FETCH PARENT CONTACT (Case-sensitive matching with Supabase)
+        # FETCH PARENT CONTACT (Based on student's selection)
         phone = None
+        current_p_display = contact.capitalize() if contact else "Father"
+        
         if parent_id:
             parent_res = sb.table("Parent").select("Father_Phone, Mother_Phone, Guardian_Phone").eq("Parent_id", parent_id).execute()
             if parent_res.data:
                 p = parent_res.data[0]
-                # Priority: Father -> Mother -> Guardian
-                phone = p.get("Father_Phone") or p.get("Mother_Phone") or p.get("Guardian_Phone")
-                # Log what we found
-                print(f"DEBUG: Found Phone: {phone}")
+                
+                # Use the phone number corresponding to the selected contact
+                if contact.lower() == "mother":
+                    phone = p.get("Mother_Phone")
+                elif contact.lower() == "guardian":
+                    phone = p.get("Guardian_Phone")
+                else: # Default to Father
+                    phone = p.get("Father_Phone")
+                
+                # Check for empty and fallback to any available number
+                if not phone:
+                    print(f"⚠️ Warning: Selected contact ({contact}) has no phone. Falling back.")
+                    phone = p.get("Father_Phone") or p.get("Mother_Phone") or p.get("Guardian_Phone")
+                    # Update current_p_display to reflect the actual person being called
+                    if phone == p.get("Mother_Phone"): current_p_display = "Mother"
+                    elif phone == p.get("Guardian_Phone"): current_p_display = "Guardian"
+                    else: current_p_display = "Father"
+                
+                print(f"DEBUG: Calling {current_p_display} at {phone}")
             else:
                 print("DEBUG: No Parent contact found for this student.")
 
@@ -98,7 +115,7 @@ def create_gatepass(student_id, destination, reason, days, contact, language, le
             "leave_date": final_leave_date,
             "Warden_id": assigned_warden,
             "attempts": 1,
-            "current_parent": "Father",
+            "current_parent": current_p_display,
             "language": language
         }
         

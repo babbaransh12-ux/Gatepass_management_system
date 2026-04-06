@@ -41,9 +41,10 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
         final uid = await AuthService.getUid();
         final res = await ApiClient.get("/student/active-pass/${uid ?? ''}");
         
-        if (mounted && res != null) {
-          final status = res["Status"];
-          final attempts = res["attempts"] ?? 1;
+        if (mounted && res != null && res["data"] != null) {
+          final data = res["data"];
+          final status = data["Status"];
+          final attempts = data["attempts"] ?? 1;
           
           setState(() {
             _attempts = attempts;
@@ -55,7 +56,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
           } else if (status == "Parent_Approved") {
             setState(() => currentStep = 2); 
           } else if (status == "Approved") {
-            final qrToken = res["qr_token"] ?? "UNKNOWN_TOKEN";
+            final qrToken = data["qr_token"] ?? "UNKNOWN_TOKEN";
             setState(() => currentStep = 3);
             timer.cancel();
             Future.delayed(const Duration(seconds: 1), () {

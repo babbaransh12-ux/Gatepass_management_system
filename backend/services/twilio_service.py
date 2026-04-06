@@ -11,7 +11,7 @@ load_dotenv()
 
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-FROM_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+FROM_NUMBER = os.getenv("TWILIO_CALL_NUMBER")
 BASE_URL = os.getenv("BASE_URL")
 
 # Make sure we don't crash if environment variables are not properly set, so only instantiate Client if credentials exist

@@ -27,6 +27,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool isLoadingHistory = false;
   
   DateTime selectedDate = DateTime.now();
+  String selectedGender = "All";
+  String selectedDept = "All";
+  
+  int insideCampus = 0;
+  int outsideCampus = 0;
 
   @override
   void initState() {
@@ -46,6 +51,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         approvedToday = stats['approved_today'] ?? 0;
         rejectedToday = stats['rejected_today'] ?? 0;
         activePasses = stats['active_passes'] ?? 0;
+        insideCampus = stats['inside_campus'] ?? 0;
+        outsideCampus = stats['outside_campus'] ?? 0;
         isLoadingStats = false;
       });
     } catch (e) {
@@ -123,12 +130,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Live Tracking Row
+              Row(
+                children: [
+                  _liveTrackingCard("Inside Campus", insideCampus.toString(), Colors.teal),
+                  const SizedBox(width: 16),
+                  _liveTrackingCard("Outside Campus", outsideCampus.toString(), Colors.orange),
+                ],
+              ),
+              const SizedBox(height: 24),
               // Stats Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  StatCard(title: "Approved", value: approvedToday.toString(), color: Colors.green),
-                  StatCard(title: "Rejected", value: rejectedToday.toString(), color: Colors.red),
+                  StatCard(title: "Approved Today", value: approvedToday.toString(), color: Colors.green),
+                  StatCard(title: "Rejected Today", value: rejectedToday.toString(), color: Colors.red),
                   GestureDetector(
                     onTap: () {
                       Navigator.push(
@@ -136,10 +152,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         MaterialPageRoute(builder: (_) => const ActivePassesScreen()),
                       );
                     },
-                    child: StatCard(title: "Active", value: activePasses.toString(), color: Colors.blue),
+                    child: StatCard(title: "Active Passes", value: activePasses.toString(), color: Colors.blue),
                   ),
                 ],
               ),
+              const SizedBox(height: 30),
+              // Filters
+              _buildFilters(),
               const SizedBox(height: 30),
               
               // Rejected Section
@@ -151,30 +170,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               else if (rejectedPasses.isEmpty)
                 const Text("No rejected passes found.")
               else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: rejectedPasses.length,
-                  itemBuilder: (context, index) {
-                    final pass = rejectedPasses[index];
-                    return Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.error_outline, color: Colors.red),
-                        title: Text(pass.studentName),
-                        subtitle: Text("To: ${pass.destination}"),
-                        trailing: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green, 
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.all(8)
-                          ),
-                          onPressed: () => _approveRejected(index),
-                          child: const Text("Approve"),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                _buildGroupedList(rejectedPasses),
                 
               const SizedBox(height: 30),
               
@@ -209,25 +205,98 @@ class _ReportsScreenState extends State<ReportsScreen> {
               else if (historyPasses.isEmpty && selectedDate.day != DateTime.now().day)
                  const Center(child: Text("No records for this date."))
               else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: historyPasses.length,
-                  itemBuilder: (context, index) {
-                    final pass = historyPasses[index];
-                    final isApproved = pass.status == "Approved";
-                    return ListTile(
-                      leading: Icon(isApproved ? Icons.check_circle : Icons.cancel, 
-                        color: isApproved ? Colors.green : Colors.red),
-                      title: Text(pass.studentName),
-                      subtitle: Text("Status: ${pass.status} | To: ${pass.destination}"),
-                    );
-                  },
-                ),
+                _buildGroupedList(historyPasses),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildGroupedList(List<LeaveRequestModel> list) {
+    // Basic filter logic
+    final filtered = list.where((e) {
+      bool g = selectedGender == "All" || e.gender == selectedGender;
+      bool d = selectedDept == "All" || e.department == selectedDept;
+      return g && d;
+    }).toList();
+
+    if (filtered.isEmpty) return const Text("No matches found with current filters.");
+
+    // Simple grouping by Department
+    Map<String, List<LeaveRequestModel>> grouped = {};
+    for (var e in filtered) {
+      String d = e.department ?? "General";
+      grouped[d] = (grouped[d] ?? [])..add(e);
+    }
+
+    return Column(
+      children: grouped.entries.map((group) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Text(group.key.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            ),
+            ...group.value.map((pass) => Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: NetworkImage(pass.studentImage),
+                  radius: 18,
+                ),
+                title: Text(pass.studentName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: Text("To: ${pass.destination} | ${pass.status}"),
+                trailing: Text(pass.gender ?? "", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              ),
+            )).toList(),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _liveTrackingCard(String title, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.1)),
+        ),
+        child: Column(
+          children: [
+            Text(title, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Text(value, style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilters() {
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: selectedGender,
+            decoration: const InputDecoration(labelText: "Gender", border: OutlineInputBorder()),
+            items: ["All", "Male", "Female"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            onChanged: (v) => setState(() => selectedGender = v!),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: selectedDept,
+            decoration: const InputDecoration(labelText: "Dept", border: OutlineInputBorder()),
+            items: ["All", "CS", "BTech", "BCA", "MTech"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            onChanged: (v) => setState(() => selectedDept = v!),
+          ),
+        ),
+      ],
     );
   }
 }

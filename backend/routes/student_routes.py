@@ -20,6 +20,9 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
         sb = get_db()
         res = sb.table("Student").select("Name, Room_no, Parent_id, Student_image, Department, Course, Email_id, Gender").eq("AU_id", student_id).execute()
         
+        if not res.data and student_id.isdigit():
+             res = sb.table("Student").select("Name, Room_no, Parent_id, Student_image, Department, Course, Email_id, Gender").eq("AU_id", int(student_id)).execute()
+             
         if not res.data:
             return {
                 "status": "error",
@@ -186,7 +189,7 @@ def active_pass(student_id: str, current_user: dict = Depends(get_current_user))
     try:
         print(f"🔍 DEBUG: Fetching active pass for {student_id}")
         sb = get_db()
-        res = sb.table("Leave_request").select("*").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Approved"]).execute()
+        res = sb.table("Leave_request").select("*").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Approved", "Exit", "Expired"]).order("Req_id", desc=True).limit(1).execute()
         
         if res.data:
             print(f"✅ DEBUG: Found active pass: {res.data[0].get('Req_id')}")

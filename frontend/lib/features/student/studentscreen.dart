@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'request_status_screen.dart';
+import 'history_screen.dart';
+import 'qr_gatepass_screen.dart';
 import '../../../core/navigation/logout_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/models/student_model.dart';
 import '../../../data/repositories/student_repository.dart';
+import '../../services/notification_service.dart';
 
 class StudentScreen extends StatefulWidget {
   const StudentScreen({super.key});
@@ -30,7 +32,6 @@ class _StudentScreenState extends State<StudentScreen> {
   Timer? _cooldownTimer;
   int _currentCooldownMs = 0;
 
-  File? profileImage;
   bool _isLoadingProfile = true;
   StudentProfile? _profile;
 
@@ -38,11 +39,13 @@ class _StudentScreenState extends State<StudentScreen> {
   void initState() {
     super.initState();
     _fetchProfile();
+    NotificationService.init(context);
   }
   
   @override
   void dispose() {
     _cooldownTimer?.cancel();
+    NotificationService.dispose();
     super.dispose();
   }
 
@@ -61,11 +64,18 @@ class _StudentScreenState extends State<StudentScreen> {
         });
 
         // 🚪 REDIRECT IF ACTIVE GATEPASS EXISTS
-        if (profile.activeReqId != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => RequestStatusScreen(reqId: profile.activeReqId.toString())),
-          );
+        if (profile.activeReqId != null && profile.exitTime == null) {
+          if (profile.qrToken != null) {
+             Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => QRGatePassScreen(qrToken: profile.qrToken!)),
+            );
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => RequestStatusScreen(reqId: profile.activeReqId.toString())),
+            );
+          }
           return;
         }
 
@@ -92,75 +102,9 @@ class _StudentScreenState extends State<StudentScreen> {
     }
   }
 
-  final ImagePicker picker = ImagePicker();
-
   bool _isUploadingPic = false;
+
   bool _isSubmitting = false;
-
-  /// Pick Image From Camera or Gallery
-  Future<void> pickProfileImage(ImageSource source) async {
-    final XFile? pickedImage = await picker.pickImage(source: source);
-    if (pickedImage != null) {
-      setState(() {
-        profileImage = File(pickedImage.path);
-        _isUploadingPic = true;
-      });
-
-      try {
-        final uid = await AuthService.getUid();
-        if (uid != null) {
-          final repo = StudentRepository();
-          await repo.uploadProfileImage(uid, pickedImage.path);
-          await _fetchProfile(); // reload to get proper URL
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile updated successfully")));
-        }
-      } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Upload error: $e")));
-      } finally {
-        if (mounted) {
-          setState(() {
-             _isUploadingPic = false;
-          });
-        }
-      }
-    }
-  }
-
-  /// Show Camera / Gallery Options
-  void showImageSourceDialog() {
-
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-
-        return SafeArea(
-          child: Wrap(
-            children: [
-
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text("Take Photo"),
-                onTap: () {
-                  Navigator.pop(context);
-                  pickProfileImage(ImageSource.camera);
-                },
-              ),
-
-              ListTile(
-                leading: const Icon(Icons.photo),
-                title: const Text("Choose from Gallery"),
-                onTap: () {
-                  Navigator.pop(context);
-                  pickProfileImage(ImageSource.gallery);
-                },
-              ),
-
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   void _startCooldownTimer() {
     _cooldownTimer?.cancel();
@@ -189,7 +133,7 @@ class _StudentScreenState extends State<StudentScreen> {
         durationController.text.isNotEmpty &&
         leaveDate != null &&
         selectedParent.isNotEmpty &&
-        (profileImage != null || (_profile?.profileUrl != null));
+        (_profile?.profileUrl != null);
   }
 
   /// Date picker
@@ -211,33 +155,33 @@ class _StudentScreenState extends State<StudentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      body: _isLoadingProfile
-          ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                // PREMIUM HEADER
-                SliverToBoxAdapter(child: _buildHeader()),
-
-                // FORM & CONTENT
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      _buildInfoCards(),
-                      const SizedBox(height: 32),
-                      if (_currentCooldownMs > 0) _buildCooldownHeader(),
-                      if (_profile?.history.isNotEmpty ?? false) _buildRecentActivity(),
-                      const SizedBox(height: 32),
-                      _buildRequestForm(),
-                    ]),
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F9FE),
+        drawer: SafeArea(child: _buildDrawer()),
+        body: _isLoadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverToBoxAdapter(child: _buildHeader()),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        _buildInfoCards(),
+                        const SizedBox(height: 32),
+                        if (_currentCooldownMs > 0) _buildCooldownHeader(),
+                        if (_profile?.history.isNotEmpty ?? false) _buildRecentActivity(),
+                        const SizedBox(height: 32),
+                        _buildRequestForm(),
+                      ]),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -251,15 +195,20 @@ class _StudentScreenState extends State<StudentScreen> {
         ),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(40)),
       ),
-      padding: const EdgeInsets.only(top: 60, bottom: 40, left: 24, right: 24),
+      padding: const EdgeInsets.only(top: 24, bottom: 40, left: 24, right: 24),
       child: Column(
         children: [
           Row(
             children: [
+              Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                ),
+              ),
+              const SizedBox(width: 12),
               // PROFILE IMAGE
-              GestureDetector(
-                onTap: showImageSourceDialog,
-                child: Hero(
+                Hero(
                   tag: "student_profile",
                   child: Container(
                     padding: const EdgeInsets.all(4),
@@ -271,24 +220,19 @@ class _StudentScreenState extends State<StudentScreen> {
                       alignment: Alignment.center,
                       children: [
                         CircleAvatar(
-                          radius: 38,
+                          radius: 34,
                           backgroundColor: Colors.white.withOpacity(0.2),
-                          backgroundImage: profileImage != null
-                              ? FileImage(profileImage!)
-                              : (_profile?.profileUrl != null
+                          backgroundImage: (_profile?.profileUrl != null
                                   ? NetworkImage(_profile!.profileUrl!) as ImageProvider
                                   : null),
-                          child: (profileImage == null && _profile?.profileUrl == null)
-                              ? const Icon(Icons.person_outline_rounded, color: Colors.white, size: 30)
+                          child: (_profile?.profileUrl == null)
+                              ? const Icon(Icons.person_outline_rounded, color: Colors.white, size: 28)
                               : null,
                         ),
-                        if (_isUploadingPic)
-                          const CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
                       ],
                     ),
                   ),
                 ),
-              ),
               const SizedBox(width: 20),
               Expanded(
                 child: Column(
@@ -328,7 +272,7 @@ class _StudentScreenState extends State<StudentScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  icon: const Icon(Icons.logout_rounded, color: Colors.white, size: 22),
+                  icon: const Icon(Icons.power_settings_new_rounded, color: Colors.white, size: 22),
                   onPressed: () => LogoutService.logout(context),
                 ),
               ),
@@ -336,6 +280,124 @@ class _StudentScreenState extends State<StudentScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(32)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 48, 24, 32),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [const Color(0xFF2D5AF0), const Color(0xFF2D5AF0).withOpacity(0.8)],
+              ),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.white.withOpacity(0.2),
+                  backgroundImage: _profile?.profileUrl != null ? NetworkImage(_profile!.profileUrl!) : null,
+                  child: _profile?.profileUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _profile?.name ?? "Student",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        "ID: ${_profile?.id ?? 'N/A'}",
+                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          _drawerItem(
+            icon: Icons.add_circle_outline_rounded,
+            title: "New Request",
+            onTap: () => Navigator.pop(context),
+            isSelected: true,
+          ),
+          if (_profile?.activeReqId != null)
+            _drawerItem(
+              icon: Icons.pending_actions_rounded,
+              title: "Active Status",
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => RequestStatusScreen(reqId: _profile!.activeReqId.toString())),
+                );
+              },
+            ),
+          _drawerItem(
+            icon: Icons.history_rounded,
+            title: "Request History",
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const StudentHistoryScreen()),
+              );
+            },
+          ),
+          const Spacer(),
+          const Divider(),
+          _drawerItem(
+            icon: Icons.help_outline_rounded,
+            title: "Help & Support",
+            onTap: () {},
+          ),
+          _drawerItem(
+            icon: Icons.logout_rounded,
+            title: "Logout",
+            color: Colors.redAccent,
+            onTap: () => LogoutService.logout(context),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _drawerItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool isSelected = false,
+    Color? color,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color ?? (isSelected ? const Color(0xFF2D5AF0) : Colors.grey.shade600), size: 22),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: color ?? (isSelected ? const Color(0xFF2D5AF0) : Colors.grey.shade800),
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          fontSize: 15,
+        ),
+      ),
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     );
   }
 

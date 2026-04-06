@@ -23,39 +23,44 @@ def voice_call(req_id: int, retry: int = Query(0)):
         stu_res = sb.table("Student").select("Name").eq("AU_id", req["AU_id"]).execute()
         student_name = stu_res.data[0]["Name"] if stu_res.data else "Student"
 
+        is_emergency = req.get("type") == "Emergency" or req.get("Status") == "Exit"
+        
         scripts = {
             "en": {
                 "voice_lang": "en-IN",
                 "voice_name": "Polly.Aditi",
-                "msg": f"Hello, this is E-Gate-pass. Permission is needed for student {student_name} to visit {dest}. Press 1 to approve, 2 to reject."
+                "msg": f"Hello, this is E-Gate-pass. Permission is needed for student {student_name} to visit {dest}. Press 1 to approve, 2 to reject." if not is_emergency else f"Hello, this is a security alert from E-Gate-pass. Student {student_name} has just exited the campus on an Emergency Pass to visit {dest}. No action is required."
             },
             "hi": {
                 "voice_lang": "hi-IN",
                 "voice_name": "Polly.Aditi",
-                "msg": f"नमस्ते, यह ई-गेट-पास है। छात्र {student_name} को {dest} जाने के लिए अनुमति चाहिए। अनुमति देने के लिए 1 दबाएं, अस्वीकार करने के लिए 2 दबाएं।"
+                "msg": f"नमस्ते, यह ई-गेट-पास है। छात्र {student_name} को {dest} जाने के लिए अनुमति चाहिए। अनुमति देने के लिए 1 दबाएं, अस्वीकार करने के लिए 2 दबाएं।" if not is_emergency else f"नमस्ते, यह ई-गेट-पास से सुरक्षा सूचना है। छात्र {student_name} ने अभी {dest} जाने के लिए आपातकालीन पास पर परिसर छोड़ दिया है। किसी कार्रवाई की आवश्यकता नहीं है।"
             },
             "pa": {
                 "voice_lang": "pa-IN",
                 "voice_name": "Google.pa-IN-Standard-A",
-                "msg": f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-ਾਸ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਲਈ {dest} ਜਾਣ ਦੀ ਆਗਿਆ ਚਾਹੀਦੀ ਹੈ। ਆਗਿਆ ਦੇਣ ਲਈ 1 ਦਬਾਓ, ਅਸਵੀਕਾਰ ਕਰਨ ਲਈ 2 ਦਬਾਓ।"
+                "msg": f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-ਾਸ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਲਈ {dest} ਜਾਣ ਦੀ ਆਗਿਆ ਚਾਹੀਦੀ ਹੈ। ਆਗਿਆ ਦੇਣ ਲਈ 1 ਦਬਾਓ, ਅਸਵੀਕਾਰ ਕਰਨ ਲਈ 2 ਦਬਾਓ।" if not is_emergency else f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-पास ਤੋਂ ਸੁਰੱਖਿਆ ਜਾਣਕਾਰੀ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਨੇ ਹੁਣੇ {dest} ਜਾਣ ਲਈ ਐਮਰਜੈਂਸੀ ਪਾਸ ਤੇ ਕੈਂਪਸ ਛੱਡ ਦਿੱਤਾ ਹੈ। ਕਿਸੇ ਕਾਰਵਾਈ ਦੀ ਲੋੜ ਨਹੀਂ ਹੈ।"
             }
         }
 
         config = scripts.get(lang, scripts["hi"])
         base_url = os.getenv("BASE_URL", "").rstrip("/")
         
-        twiml = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Response>'
-            f'<Gather numDigits="1" action="{base_url}/ivr/handle-response/{req_id}?retry={retry}" method="POST" timeout="10">'
-            f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">{config["msg"]} प्रेस 3 दोहराने के लिए। (Press 3 to repeat.)</Say>'
-            '</Gather>'
-        )
+        twiml = '<?xml version="1.0" encoding="UTF-8"?>\n<Response>'
         
-        if retry < 2:
-            twiml += f'<Redirect method="POST">{base_url}/ivr/voice/{req_id}?retry={retry + 1}</Redirect>'
+        if not is_emergency:
+            twiml += (
+                f'<Gather numDigits="1" action="{base_url}/ivr/handle-response/{req_id}?retry={retry}" method="POST" timeout="10">'
+                f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">{config["msg"]} प्रेस 3 दोहराने के लिए। (Press 3 to repeat.)</Say>'
+                '</Gather>'
+            )
+            if retry < 2:
+                twiml += f'<Redirect method="POST">{base_url}/ivr/voice/{req_id}?retry={retry + 1}</Redirect>'
+            else:
+                twiml += f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">असुविधा के लिए खेद है। आपका दिन शुभ हो। (Sorry for the inconvenience. Goodbye.)</Say>'
+                twiml += '<Hangup/>'
         else:
-            twiml += f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">असुविधा के लिए खेद है। आपका दिन शुभ हो। (Sorry for the inconvenience. Goodbye.)</Say>'
+            twiml += f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">{config["msg"]}</Say>'
             twiml += '<Hangup/>'
             
         twiml += '</Response>'
@@ -119,11 +124,6 @@ def call_status(
         current_p = req.get("current_parent", "Father")
         student_id = req["AU_id"]
 
-        if attempts > 3:
-            print(f"🚑 Max attempts reached (3/3) for Req {req_id}. Triggering Emergency.")
-            sb.table("Leave_request").update({"Status": "Emergency", "attempts": 3, "Reason": "Parent Unavailable after 3 attempts"}).eq("Req_id", req_id).execute()
-            return "Emergency Triggered"
-
         stu_res = sb.table("Student").select("Parent_id").eq("AU_id", student_id).execute()
         if not stu_res.data: return Response(content="Student Not Found", status_code=404)
         
@@ -132,29 +132,30 @@ def call_status(
         if not parent_res.data: return Response(content="Parent Not Found", status_code=404)
         
         p = parent_res.data[0]
-        next_phone = None
-        next_parent = current_p
 
-        if attempts <= 3:
-            print(f"🔄 Redialing {current_p} for Req {req_id} (Attempt {attempts}/3)...")
-            next_phone = p.get(f"{current_p}_Phone") or p.get("Phone")
-        else:
+        if attempts > 3:
             if current_p == "Father":
                 next_parent = "Mother"
                 next_phone = p.get("Mother_Phone")
             elif current_p == "Mother":
                 next_parent = "Guardian"
                 next_phone = p.get("Guardian_Phone")
-            
-            if next_phone:
-                print(f"🔀 Rotating to {next_parent} for Req {req_id}...")
-                attempts = 1
             else:
-                print(f"🚑 All guardians unreachable for Req {req_id}. Triggering Emergency.")
-                sb.table("Leave_request").update({"Status": "Emergency", "attempts": 3}).eq("Req_id", req_id).execute()
+                next_parent = None
+                next_phone = None
+                
+            if next_phone:
+                print(f"🔀 Max attempts reached for {current_p}. Rotating to {next_parent} for Req {req_id}...")
+                attempts = 1
+                current_p = next_parent
+            else:
+                print(f"🚑 Max attempts reached (3/3) and no backup contacts for Req {req_id}. Triggering Emergency.")
+                sb.table("Leave_request").update({"Status": "Emergency", "attempts": 3, "Reason": "Parent Unavailable after 3 attempts"}).eq("Req_id", req_id).execute()
                 return "Emergency Triggered"
 
-        sb.table("Leave_request").update({"attempts": attempts, "current_parent": next_parent}).eq("Req_id", req_id).execute()
+        next_phone = p.get(f"{current_p}_Phone") or p.get("Phone")
+        print(f"🔄 Dialing {current_p} at {next_phone} for Req {req_id} (Attempt {attempts}/3)...")
+        sb.table("Leave_request").update({"attempts": attempts, "current_parent": current_p}).eq("Req_id", req_id).execute()
         if next_phone:
             make_call(next_phone, req_id)
 

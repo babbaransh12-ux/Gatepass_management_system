@@ -55,8 +55,8 @@ def get_pending(current_user: dict = Depends(get_current_user)):
 def get_active_passes(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        # Find leaves that are currently Approved
-        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, created_at").eq("Status", "Approved").execute()
+        # Find leaves that are currently Approved or Exit (meaning they are actively off-campus)
+        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, created_at, Status").in_("Status", ["Approved", "Exit"]).execute()
         
         data = res.data
         for req in data:
@@ -252,7 +252,13 @@ def search_student(query: str = Query(""), current_user: dict = Depends(get_curr
             return []
 
         sb = get_db()
-        s_res = sb.table("Student").select("AU_id, Name, Room_no, Parent_id, Student_image, Department, Course").or_(f"Name.ilike.%{query}%,AU_id.eq.{query},Room_no.eq.{query}").execute()
+        
+        # Build a safe query: Name is always a string, but AU_id and Room_no might be numeric in some DB schemas
+        # ilike is safe for strings.
+        if query.isdigit():
+             s_res = sb.table("Student").select("AU_id, Name, Room_no, Parent_id, Student_image, Department, Course").or_(f"Name.ilike.%{query}%,AU_id.eq.{query},Room_no.eq.{query}").execute()
+        else:
+             s_res = sb.table("Student").select("AU_id, Name, Room_no, Parent_id, Student_image, Department, Course").ilike("Name", f"%{query}%").execute()
         
         results = s_res.data
         for s in results:

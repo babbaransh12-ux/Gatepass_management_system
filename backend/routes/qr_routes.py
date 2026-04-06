@@ -16,159 +16,187 @@ def get_message(lang, action, name):
     }
     return msgs.get(lang, msgs["en"]).get(action)
 
-def send_sms(phone, txt):
+def send_notification(phone, txt):
     try:
         sid = os.getenv("TWILIO_ACCOUNT_SID")
         token = os.getenv("TWILIO_AUTH_TOKEN")
-        from_phone = os.getenv("TWILIO_PHONE_NUMBER")
+        from_phone = os.getenv("TWILIO_WHATSAPP_NUMBER") or os.getenv("TWILIO_PHONE_NUMBER")
+        use_whatsapp = os.getenv("USE_WHATSAPP", "false").lower() == "true"
         
+        if phone and not str(phone).startswith('+'):
+            phone_str = str(phone).strip()
+            if len(phone_str) == 10:
+                phone = f"+91{phone_str}"
+            else:
+                phone = f"+{phone_str}"
+        else:
+            phone = str(phone).strip()
+
+        if use_whatsapp:
+            if not str(from_phone).startswith('whatsapp:'):
+                 from_phone = f"whatsapp:{from_phone}"
+            if not str(phone).startswith('whatsapp:'):
+                 phone = f"whatsapp:{phone}"
+
         if sid and token and from_phone:
             client = Client(sid, token)
             client.messages.create(body=txt, from_=from_phone, to=phone)
-            print(f"SMS Sent to {phone}")
+            print(f"✅ WhatsApp/SMS Sent to {phone}")
     except Exception as e:
-        print(f"SMS Error: {e}")
+        print(f"❌ Notification Error: {e}")
 
-@router.api_route("/scan/{token}", methods=["GET", "POST"])
-def scan(token: str, action: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+@router.get("/scan/{token}")
+def get_scan(token: str, current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        res = sb.table("Leave_request").select("Req_id, AU_id, Status").eq("qr_token", token).execute()
+        
+        if len(token) < 15:
+            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
+        else:
+            res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
+            
+        if not res.data:
+            return {"status": "error", "message": "Invalid QR or No Active Pass"}
+
+        req = res.data[0]
+        au_id = req.get("AU_id")
+        
+        # Get Student Profile
+        s_res = sb.table("Student").select("Name, AU_id, Student_image, Department, Course").eq("AU_id", au_id).execute()
+        student = s_res.data[0] if s_res.data else {}
+        
+        return {
+            "status": "success",
+            "request": req,
+            "student": {
+                "name": student.get("Name"),
+                "uid": student.get("AU_id"),
+                "photo": student.get("Student_image"),
+                "dept": student.get("Department")
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scan/{token}")
+def verify_scan(token: str, action: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+    try:
+        sb = get_db()
+        
+        if len(token) < 15:
+            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
+        else:
+            res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
         
         if not res.data:
             return {"status": "error", "message": "Invalid QR"}
 
-        row = res.data[0]
-        req_id = row.get("Req_id")
-        au_id = row.get("AU_id")
-        status_str = row.get("Status")
-
-        if status_str == "Expired":
-            return {"status": "error", "message": "QR expired"}
-
-        try:
-            log_res = sb.table("Gate_log").select("action, scanned_at, Timestamp").eq("leave_request_id", req_id).execute()
-        except Exception:
-            try:
-                log_res = sb.table("Gate_log").select("*").eq("req_id", req_id).execute()
-            except Exception:
-                log_res = None
+        req = res.data[0]
+        req_id = req.get("Req_id")
+        au_id = req.get("AU_id")
         
-        sc = len(log_res.data) if log_res else 0
-        
-        if not action:
-            if sc == 0:
-                action = "exit"
-            elif sc == 1:
-                action = "entry"
-            else:
-                return {"status": "error", "message": "QR expired or already used"}
-
-        if sc > 0:
-            last_log = log_res.data[-1]
-            last_time_str = last_log.get("scanned_at") or last_log.get("Timestamp")
-            if last_time_str:
-                try:
-                    if 'T' in last_time_str:
-                        last_time = datetime.fromisoformat(last_time_str.split('+')[0])
-                    else:
-                        last_time = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S")
-                    
-                    if (datetime.now() - last_time).total_seconds() < 60:
-                        return {"status": "error", "message": "Wait 60s before next scan."}
-                except Exception as e:
-                    print(f"Cooldown check error: {e}")
-
-        student_res = sb.table("Student").select("Name, Parent_id, AU_id, Student_image").eq("AU_id", au_id).execute()
-        name = "Student"
-        image_url = None
-        phone = None
-        lang = "en"
-        
-        if student_res.data:
-            s_row = student_res.data[0]
-            name = s_row.get("Name", "Student")
-            image_url = s_row.get("Student_image")
-            parent_id = s_row.get("Parent_id")
-            if parent_id:
-                parent_res = sb.table("Parent").select("Father_Phone, Mother_Phone, Guardian_Phone, language").eq("Parent_id", parent_id).execute()
-                if parent_res.data:
-                    p_data = parent_res.data[0]
-                    phone = p_data.get("Father_Phone") or p_data.get("Mother_Phone") or p_data.get("Guardian_Phone")
-                    lang = p_data.get("language") or "en"
-
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Robust Gate_log insertion
-        log_success = False
-        try:
-            sb.table("Gate_log").insert({"leave_request_id": req_id, "action": action, "scanned_at": now}).execute()
-            log_success = True
-        except Exception as e1:
-            print(f"DEBUG: Gate_log primary insert failed: {e1}")
-            try:
-                sb.table("Gate_log").insert({"req_id": req_id, "Action": action, "Timestamp": now}).execute()
-                log_success = True
-            except Exception as e2:
-                print(f"DEBUG: Gate_log fallback insert failed: {e2}")
+        if not action:
+            if not req.get("exit_time"):
+                action = "exit"
+            elif not req.get("entry_time"):
+                action = "entry"
+            else:
+                return {"status": "error", "message": "Gatepass already completed"}
 
-        # Update Request Status
-        try:
-            if action == "exit":
-                sb.table("Leave_request").update({"Status": "Exit"}).eq("Req_id", req_id).execute()
-            elif action == "entry":
-                sb.table("Leave_request").update({"Status": "Expired"}).eq("Req_id", req_id).execute()
-        except Exception as status_err:
-            print(f"DEBUG: Status update failed: {status_err}")
-
-        if phone:
-            sms_text = get_message(lang, action, name)
-            print(f"📡 DEBUG: Sending SMS to {phone}: {sms_text}")
-            send_sms(phone, sms_text)
-
-        return {
-            "status": "success", 
-            "message": f"{action.capitalize()} recorded.", 
-            "scan_count": sc + 1,
-            "student_name": name,
-            "student_id": au_id,
-            "student_image": image_url
-        }
+        update_payload = {"Status": "Exit" if action == "exit" else "Expired"}
         
+        if action == "exit":
+            update_payload["exit_time"] = now
+        else:
+            update_payload["entry_time"] = now
+
+        try:
+            sb.table("Leave_request").update(update_payload).eq("Req_id", req_id).execute()
+        except:
+            fb_status = "Exit" if action == "exit" else "Expired"
+            sb.table("Leave_request").update({"Status": fb_status}).eq("Req_id", req_id).execute()
+
+        try:
+            sb.table("Gate_log").insert({
+                "req_id": req_id,
+                "stu_id": au_id,
+                "Action": action,
+                "Timestamp": now
+            }).execute()
+        except Exception as e:
+            print(f"Gate log error (ignoring): {e}")
+
+        # Notify Parent
+        try:
+            current_parent = req.get("current_parent") or "Father"
+            student_res = sb.table("Student").select("Name, Parent_id").eq("AU_id", au_id).execute()
+            if student_res.data:
+                s = student_res.data[0]
+                name = s.get("Name")
+                parent_id = s.get("Parent_id")
+                if parent_id:
+                    p_res = sb.table("Parent").select("Father_Phone, Mother_Phone, Guardian_Phone").eq("Parent_id", parent_id).execute()
+                    if p_res.data:
+                        p_data = p_res.data[0]
+                        phone = None
+                        if current_parent.lower() == "mother":
+                            phone = p_data.get("Mother_Phone")
+                        elif current_parent.lower() == "guardian":
+                            phone = p_data.get("Guardian_Phone")
+                        else:
+                            phone = p_data.get("Father_Phone")
+                        
+                        if not phone:
+                            phone = p_data.get("Father_Phone") or p_data.get("Mother_Phone") or p_data.get("Guardian_Phone")
+                            
+                        if phone:
+                            send_notification(phone, get_message("en", action, name))
+        except Exception as e:
+            print(f"Notification error (ignoring): {e}")
+
+        return {"status": "success", "message": f"{action.capitalize()} recorded", "action": action}
+        
+    except Exception as e:
+        print(f"Verify scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/undo-scan/{token}")
+def undo_scan(token: str, current_user: dict = Depends(get_current_user)):
+    try:
+        sb = get_db()
+        res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
+        if not res.data: return {"status": "error", "message": "Not found"}
+        
+        req = res.data[0]
+        req_id = req.get("Req_id")
+        
+        if req.get("exit_time"):
+            sb.table("Leave_request").update({"exit_time": None, "Status": "Exit"}).eq("Req_id", req_id).execute()
+        elif req.get("entry_time"):
+            sb.table("Leave_request").update({"entry_time": None, "Status": "Approved"}).eq("Req_id", req_id).execute()
+            
+        return {"status": "success", "message": "Last scan undone"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/active-emergencies")
 def active_emergencies(current_user: dict = Depends(get_current_user)):
+    # Disabled polling popup to prevent lag and false triggers. Guards use the manual 'Emergency Search' button instead.
+    return []
+
+@router.get("/recent-logs")
+def get_recent_logs(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        try:
-            res = sb.table("Leave_request").select("Req_id, AU_id, Reason, qr_token, Status").eq("type", "Emergency").eq("Status", "Approved").execute()
-        except Exception:
-            res = sb.table("Leave_request").select("Req_id, AU_id, Reason, qr_token, Status").eq("Status", "Approved").execute()
-        
-        data = res.data
-        enriched = []
-        for row in data:
-            if not row.get("qr_token"):
-                continue
-            
-            au_id = row.get("AU_id")
-            s_res = sb.table("Student").select("Name, Room_no, Student_image").eq("AU_id", au_id).execute()
-            student = s_res.data[0] if s_res.data else {}
-            name = student.get("Name") or "Student"
-            
-            enriched.append({
-                "req_id": row.get("Req_id"),
-                "AU_id": au_id,
-                "student_name": name,
-                "room": student.get("Room_no") or "N/A",
-                "student_image": student.get("Student_image") or f"https://ui-avatars.com/api/?name={name}&background=E53935&color=fff",
-                "reason": row.get("Reason") or "Emergency",
-                "qr_token": row.get("qr_token"),
-                "status": row.get("Status"),
-            })
-        
-        return enriched
+        res = sb.table("Gate_log").select("*, Student:stu_id(Name, Student_image)").order("timestamp", desc=True).limit(20).execute()
+        data = res.data or []
+        return [{
+            "student_name": row.get("Student", {}).get("Name") or "Unknown",
+            "student_image": row.get("Student", {}).get("Student_image"),
+            "action": row.get("action", "Unknown").capitalize(),
+            "timestamp": row.get("timestamp")
+        } for row in data]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return []

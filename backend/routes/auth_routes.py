@@ -40,8 +40,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 @router.post("/login")
 def login(data: LoginRequest):
     try:
-        uid = data.uid
-        password = data.password
+        uid = data.uid.strip()
+        password = data.password.strip()
         role = data.role
         device_id = data.device_id
         
@@ -50,20 +50,32 @@ def login(data: LoginRequest):
         # 1. WARDEN LOGIN
         if role == "Warden":
             if password != "warden123":
-                raise HTTPException(status_code=401, detail="Invalid password")
+                raise HTTPException(status_code=401, detail="Invalid Warden Password")
             
-            # Clean UID if it's a string like "W-01"
+            # Clean UID if it's a string like "W-01" or just "01"
             clean_uid = uid
-            if isinstance(uid, str) and "-" in uid:
-                try:
-                    clean_uid = int(uid.split("-")[-1])
-                except: pass
+            if isinstance(uid, str):
+                if "-" in uid:
+                    try:
+                        clean_uid = int(uid.split("-")[-1])
+                    except: pass
+                elif uid.isdigit():
+                    clean_uid = int(uid)
 
             try:
+                # Use ilike for ID if it might be string, or eq if int. PostgREST allows ilike on int? No. 
+                # Better to try numeric eq first.
                 w_res = sb.table("Warden").select("Gender").eq("warden_id", clean_uid).execute()
-                gender = w_res.data[0].get("Gender", "Male") if w_res.data else "Male"
+                gender = "Male"
+                if w_res.data:
+                    gender = w_res.data[0].get("Gender", "Male")
+                else:
+                    # Try string if int fails or returns nothing
+                    w_res = sb.table("Warden").select("Gender").ilike("warden_id", str(clean_uid)).execute()
+                    if w_res.data:
+                        gender = w_res.data[0].get("Gender", "Male")
             except Exception as e:
-                print(f"Warning: Warden Gender column error: {e}")
+                print(f"Warning: Warden lookup issue: {e}")
                 gender = "Male"
 
             token = jwt.encode({

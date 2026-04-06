@@ -77,6 +77,9 @@ class StudentProfile {
   final String? cooldownEndTime;
   final int cooldownRemainingMs;
   final List<Map<String, dynamic>> history;
+  final String? entryTime;
+  final String? exitTime;
+  final String? qrToken;
 
   StudentProfile({
     required this.id,
@@ -92,6 +95,9 @@ class StudentProfile {
     this.cooldownEndTime,
     this.cooldownRemainingMs = 0,
     this.history = const [],
+    this.entryTime,
+    this.exitTime,
+    this.qrToken,
   });
 
   factory StudentProfile.fromJson(Map<String, dynamic> json) {
@@ -115,6 +121,9 @@ class StudentProfile {
               ?.map((e) => e as Map<String, dynamic>)
               .toList() ??
           [],
+      entryTime: json['entry_time'],
+      exitTime: json['exit_time'],
+      qrToken: json['qr_token'],
     );
   }
 }

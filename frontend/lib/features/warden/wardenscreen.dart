@@ -3,6 +3,7 @@ import '../../../core/navigation/logout_button.dart';
 import '../../../features/warden/reports_screen.dart';
 import 'search_student_screen.dart';
 import '../../../features/warden/requests_screen.dart';
+import '../../services/notification_service.dart';
 
 class WardenScreen extends StatefulWidget {
   const WardenScreen({super.key});
@@ -12,8 +13,19 @@ class WardenScreen extends StatefulWidget {
 }
 
 class _WardenScreenState extends State<WardenScreen> {
-
   int index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    NotificationService.init(context);
+  }
+
+  @override
+  void dispose() {
+    NotificationService.dispose();
+    super.dispose();
+  }
 
   final screens = [
     const RequestsScreen(),
