@@ -1,14 +1,27 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../core/services/auth_service.dart';
 
 class NotificationService {
   static final SupabaseClient _supabase = Supabase.instance.client;
   static RealtimeChannel? _requestsChannel;
+  static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   /// Initialize listeners for the current user
   static Future<void> init(BuildContext context) async {
+    // Initialize Local Notifications
+    const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const InitializationSettings initSettings = InitializationSettings(android: androidSettings, iOS: iosSettings);
+    
+    await _localNotifications.initialize(initSettings);
+
     final role = await AuthService.getRole();
     final uid = await AuthService.getUid();
     
@@ -18,13 +31,13 @@ class NotificationService {
     _requestsChannel?.unsubscribe();
 
     if (role == 'Warden') {
-      _initWardenListener(context);
+      _initWardenListener();
     } else if (role == 'Student') {
-      _initStudentListener(context, uid);
+      _initStudentListener(uid);
     }
   }
 
-  static void _initWardenListener(BuildContext context) {
+  static void _initWardenListener() {
     _requestsChannel = _supabase
         .channel('warden-requests')
         .onPostgresChanges(
@@ -37,17 +50,16 @@ class NotificationService {
             value: 'Pending',
           ),
           callback: (payload) {
-            _showNotification(
-              context, 
-              "New Leave Request", 
-              "A new student request is waiting for your approval."
+            _showSystemNotification(
+              "🚨 Alert Notified: New Request!", 
+              "A student just submitted a leave request that requires your approval."
             );
           },
         )
         .subscribe();
   }
 
-  static void _initStudentListener(BuildContext context, String uid) {
+  static void _initStudentListener(String uid) {
     _requestsChannel = _supabase
         .channel('student-status')
         .onPostgresChanges(
@@ -64,13 +76,21 @@ class NotificationService {
             final oldStatus = payload.oldRecord['Status'];
 
             if (newStatus != oldStatus) {
+               String title = "Gate Pass Update";
                String msg = "";
-               if (newStatus == 'Parent_Approved') msg = "Your parent has approved your request.";
-               else if (newStatus == 'Warden_Approved' || newStatus == 'Approved') msg = "Warden has approved! Your Gate Pass is ready.";
-               else if (newStatus == 'Rejected') msg = "Your leave request was rejected.";
+               if (newStatus == 'Parent_Approved') {
+                 title = "📞 Parent Approved";
+                 msg = "Your parent has approved your request. Waiting for Warden.";
+               } else if (newStatus == 'Warden_Approved' || newStatus == 'Approved') {
+                 title = "✅ Request Approved!";
+                 msg = "Your Gate Pass is generated and ready to use.";
+               } else if (newStatus == 'Rejected') {
+                 title = "❌ Request Rejected";
+                 msg = "Your leave request was unfortunately rejected.";
+               }
 
                if (msg.isNotEmpty) {
-                 _showNotification(context, "Gate Pass Update", msg);
+                 _showSystemNotification(title, msg);
                }
             }
           },
@@ -78,26 +98,38 @@ class NotificationService {
         .subscribe();
   }
 
-  static void _showNotification(BuildContext context, String title, String body) {
-    if (!context.mounted) return;
+  static Future<void> _showSystemNotification(String title, String body) async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'egatepass_alerts',
+      'E-Gatepass Alerts',
+      channelDescription: 'Important alerts for gatepass updates',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      enableLights: true,
+      styleInformation: BigTextStyleInformation(''),
+    );
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text(body, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-        backgroundColor: const Color(0xFF2D5AF0),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(label: "VIEW", textColor: Colors.white, onPressed: () {}),
-      ),
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const NotificationDetails notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    // Generate a unique ID
+    final int notifId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    await _localNotifications.show(
+      notifId,
+      title,
+      body,
+      notificationDetails,
     );
   }
 

@@ -51,7 +51,7 @@ def get_scan(token: str, current_user: dict = Depends(get_current_user)):
         sb = get_db()
         
         if len(token) < 15:
-            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
+            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit", "Emergency"]).order("Req_id", desc=True).limit(1).execute()
         else:
             res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
             
@@ -84,7 +84,7 @@ def verify_scan(token: str, action: Optional[str] = Query(None), current_user: d
         sb = get_db()
         
         if len(token) < 15:
-            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
+            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit", "Emergency"]).order("Req_id", desc=True).limit(1).execute()
         else:
             res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
         
@@ -105,7 +105,7 @@ def verify_scan(token: str, action: Optional[str] = Query(None), current_user: d
             else:
                 return {"status": "error", "message": "Gatepass already completed"}
 
-        update_payload = {"Status": "Exit" if action == "exit" else "Expired"}
+        update_payload = {"Status": "Exit" if action == "exit" else "Deactivated"}
         
         if action == "exit":
             update_payload["exit_time"] = now
@@ -115,7 +115,7 @@ def verify_scan(token: str, action: Optional[str] = Query(None), current_user: d
         try:
             sb.table("Leave_request").update(update_payload).eq("Req_id", req_id).execute()
         except:
-            fb_status = "Exit" if action == "exit" else "Expired"
+            fb_status = "Exit" if action == "exit" else "Deactivated"
             sb.table("Leave_request").update({"Status": fb_status}).eq("Req_id", req_id).execute()
 
         try:

@@ -17,6 +17,11 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+
+    // Suppress obsolete Java 8 warnings from Flutter plugins
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-Xlint:-options")
+    }
 }
 
 tasks.register<Delete>("clean") {

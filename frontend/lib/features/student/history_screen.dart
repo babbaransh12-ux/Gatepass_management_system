@@ -110,7 +110,7 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
         statusColor = Colors.redAccent;
         statusIcon = Icons.cancel_rounded;
         break;
-      case 'Expired':
+      case 'Deactivated':
         statusColor = Colors.grey;
         statusIcon = Icons.history_rounded;
         break;

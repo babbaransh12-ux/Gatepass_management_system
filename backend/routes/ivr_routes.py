@@ -13,7 +13,7 @@ def voice_call(req_id: int, retry: int = Query(0)):
         sb = get_db()
         res = sb.table("Leave_request").select("AU_id, Destination, language").eq("Req_id", req_id).execute()
         if not res.data: 
-            print(f"❌ IVR Error: Request {req_id} not found in DB")
+            print(f" IVR Error: Request {req_id} not found in DB")
             return Response(content="Not Found", status_code=404)
         
         req = res.data[0]
@@ -64,11 +64,11 @@ def voice_call(req_id: int, retry: int = Query(0)):
             twiml += '<Hangup/>'
             
         twiml += '</Response>'
-        print(f"✅ IVR: TwiML generated for Req {req_id} ({lang}, Retry: {retry})")
+        print(f" IVR: TwiML generated for Req {req_id} ({lang}, Retry: {retry})")
         return Response(content=twiml, media_type="text/xml")
         
     except Exception as e:
-        print(f"🔥 IVR Crash on Req {req_id}: {e}")
+        print(f" IVR Crash on Req {req_id}: {e}")
         return Response(content=str(e), status_code=500)
 
 @router.post("/handle-response/{req_id}")
@@ -107,10 +107,10 @@ def call_status(
     CallStatus: Optional[str] = Form(None)
 ):
     """Handle Twilio call status callbacks and redial/rotate logic."""
-    print(f"📡 Twilio Status for Req {req_id}: {CallStatus}")
+    print(f" Twilio Status for Req {req_id}: {CallStatus}")
 
     if CallStatus == "completed":
-        print(f"✅ Call to parent for Req {req_id} was answered.")
+        print(f" Call to parent for Req {req_id} was answered.")
         return "OK"
 
     if CallStatus in ["busy", "no-answer", "failed", "canceled"]:
@@ -145,16 +145,16 @@ def call_status(
                 next_phone = None
                 
             if next_phone:
-                print(f"🔀 Max attempts reached for {current_p}. Rotating to {next_parent} for Req {req_id}...")
+                print(f" Max attempts reached for {current_p}. Rotating to {next_parent} for Req {req_id}...")
                 attempts = 1
                 current_p = next_parent
             else:
-                print(f"🚑 Max attempts reached (3/3) and no backup contacts for Req {req_id}. Triggering Emergency.")
+                print(f"Max attempts reached (3/3) and no backup contacts for Req {req_id}. Triggering Emergency.")
                 sb.table("Leave_request").update({"Status": "Emergency", "attempts": 3, "Reason": "Parent Unavailable after 3 attempts"}).eq("Req_id", req_id).execute()
                 return "Emergency Triggered"
 
         next_phone = p.get(f"{current_p}_Phone") or p.get("Phone")
-        print(f"🔄 Dialing {current_p} at {next_phone} for Req {req_id} (Attempt {attempts}/3)...")
+        print(f"Dialing {current_p} at {next_phone} for Req {req_id} (Attempt {attempts}/3)...")
         sb.table("Leave_request").update({"attempts": attempts, "current_parent": current_p}).eq("Req_id", req_id).execute()
         if next_phone:
             make_call(next_phone, req_id)
