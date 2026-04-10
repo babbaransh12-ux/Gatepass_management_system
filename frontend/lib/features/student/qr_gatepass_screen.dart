@@ -31,12 +31,21 @@ class _QRGatePassScreenState extends State<QRGatePassScreen> {
     try {
       final uid = await AuthService.getUid();
       final res = await ApiClient.get("/student/active-pass/${uid ?? ''}");
-      if (res != null && res["data"] != null) {
-        final data = res["data"];
-        if (mounted) {
+      if (mounted) {
+        if (res != null && res["data"] != null) {
+          final data = res["data"];
+          final status = (data["Status"] ?? "").toString();
           setState(() {
-            _isExitDone = data["exit_time"] != null;
-            _isEntryDone = data["entry_time"] != null;
+            // Status: Approved → neither done | Exit → exit done | Completed → both done
+            _isExitDone = status == "Exit" || status == "Completed";
+            _isEntryDone = status == "Completed";
+            _isLoading = false;
+          });
+        } else {
+          // null data means pass is fully completed (Deactivated) — mark both done
+          setState(() {
+            _isExitDone = true;
+            _isEntryDone = true;
             _isLoading = false;
           });
         }

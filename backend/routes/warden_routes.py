@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from db import get_db
 from services.qr_service import generate_qr
 from routes.auth_routes import get_current_user
@@ -42,7 +42,7 @@ def get_pending(current_user: dict = Depends(get_current_user)):
             req["room"] = student.get("Room_no") or ""
             
             # Map Parent_Approved to Pending so Flutter enum doesn't crash
-            req["Reason"] = f"(✅ Parent Approved) {req.get('Reason', '')}"
+            req["Reason"] = f"( Parent Approved) {req.get('Reason', '')}"
             req["Status"] = "Pending"
             
             data.append(req)
@@ -113,15 +113,29 @@ def get_stats(current_user: dict = Depends(get_current_user)):
         sb = get_db()
         today = datetime.now().strftime('%Y-%m-%d')
         
+        # Requests stats
         app_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Approved").gte("created_at", today).execute()
         rej_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Rejected").gte("created_at", today).execute()
         act_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Approved").execute()
+        pend_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Parent_Approved").execute()
+        
+        # Occupancy stats
+        outside_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Exit").execute()
+        total_students_res = sb.table("Student").select("AU_id", count='exact').execute()
+        
+        total_students = total_students_res.count if total_students_res.count is not None else 0
+        outside_campus = outside_res.count if outside_res.count is not None else 0
+        inside_campus = total_students - outside_campus
         
         return {
             "status": "success",
             "approved_today": app_res.count if app_res.count is not None else 0,
             "rejected_today": rej_res.count if rej_res.count is not None else 0,
-            "active_passes": act_res.count if act_res.count is not None else 0
+            "active_passes": act_res.count if act_res.count is not None else 0,
+            "pending_review": pend_res.count if pend_res.count is not None else 0,
+            "total_students": total_students,
+            "outside_campus": outside_campus,
+            "inside_campus": inside_campus
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -278,4 +292,36 @@ def search_student(query: str = Query(""), current_user: dict = Depends(get_curr
             
         return results
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/gate-logs")
+def get_gate_logs(
+    date: Optional[str] = Query(None),
+    gender: Optional[str] = Query(None),
+    dept: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        sb = get_db()
+        query = sb.table("Gate_log").select("*, Student:stu_id(*)")
+        
+        if date:
+            next_day = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            query = query.gte("Timestamp", date).lt("Timestamp", next_day)
+            
+        res = query.order("Timestamp", desc=True).execute()
+        data = res.data or []
+        
+        filtered_data = []
+        for log in data:
+            student = log.get("Student") or {}
+            if gender and gender != "All" and student.get("Gender") != gender:
+                continue
+            if dept and dept != "All" and student.get("Department") != dept:
+                continue
+            filtered_data.append(log)
+            
+        return filtered_data
+    except Exception as e:
+        print(f"Gate logs error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

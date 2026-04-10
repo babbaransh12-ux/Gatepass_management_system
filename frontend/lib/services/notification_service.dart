@@ -7,28 +7,32 @@ import '../../core/services/auth_service.dart';
 class NotificationService {
   static final SupabaseClient _supabase = Supabase.instance.client;
   static RealtimeChannel? _requestsChannel;
-  static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  static RealtimeChannel? _wardenUpdateChannel;
+  static final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
 
   /// Initialize listeners for the current user
   static Future<void> init(BuildContext context) async {
-    // Initialize Local Notifications
-    const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-    const InitializationSettings initSettings = InitializationSettings(android: androidSettings, iOS: iosSettings);
-    
+    const InitializationSettings initSettings =
+        InitializationSettings(android: androidSettings, iOS: iosSettings);
+
     await _localNotifications.initialize(initSettings);
 
     final role = await AuthService.getRole();
     final uid = await AuthService.getUid();
-    
+
     if (role == null || uid == null) return;
 
-    // Remove existing channel if any
+    // Tear down any previous subscriptions
     _requestsChannel?.unsubscribe();
+    _wardenUpdateChannel?.unsubscribe();
 
     if (role == 'Warden') {
       _initWardenListener();
@@ -37,9 +41,12 @@ class NotificationService {
     }
   }
 
+  // ──────────────────────────── WARDEN ───────────────────────────────────────
+
   static void _initWardenListener() {
+    // Channel 1: New student request inserted (Status=Pending)
     _requestsChannel = _supabase
-        .channel('warden-requests')
+        .channel('warden-new-requests')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -49,19 +56,38 @@ class NotificationService {
             column: 'Status',
             value: 'Pending',
           ),
-          callback: (payload) {
-            _showSystemNotification(
-              "🚨 Alert Notified: New Request!", 
-              "A student just submitted a leave request that requires your approval."
-            );
-          },
+          callback: (_) => _showSystemNotification(
+            "🔔 New Leave Request",
+            "A student submitted a leave request — awaiting IVR parent approval.",
+          ),
+        )
+        .subscribe();
+
+    // Channel 2: Parent approved — warden action now needed
+    _wardenUpdateChannel = _supabase
+        .channel('warden-parent-approved')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'Leave_request',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'Status',
+            value: 'Parent_Approved',
+          ),
+          callback: (_) => _showSystemNotification(
+            "🚨 Action Required: Parent Approved!",
+            "A parent approved a student request. Please review it now.",
+          ),
         )
         .subscribe();
   }
 
+  // ──────────────────────────── STUDENT ──────────────────────────────────────
+
   static void _initStudentListener(String uid) {
     _requestsChannel = _supabase
-        .channel('student-status')
+        .channel('student-status-$uid')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
@@ -75,28 +101,43 @@ class NotificationService {
             final newStatus = payload.newRecord['Status'];
             final oldStatus = payload.oldRecord['Status'];
 
-            if (newStatus != oldStatus) {
-               String title = "Gate Pass Update";
-               String msg = "";
-               if (newStatus == 'Parent_Approved') {
-                 title = "📞 Parent Approved";
-                 msg = "Your parent has approved your request. Waiting for Warden.";
-               } else if (newStatus == 'Warden_Approved' || newStatus == 'Approved') {
-                 title = "✅ Request Approved!";
-                 msg = "Your Gate Pass is generated and ready to use.";
-               } else if (newStatus == 'Rejected') {
-                 title = "❌ Request Rejected";
-                 msg = "Your leave request was unfortunately rejected.";
-               }
+            if (newStatus == oldStatus) return;
 
-               if (msg.isNotEmpty) {
-                 _showSystemNotification(title, msg);
-               }
+            String title = '';
+            String msg = '';
+
+            switch (newStatus) {
+              case 'Parent_Approved':
+                title = "📞 Parent Approved";
+                msg = "Your parent approved the request. Waiting for Warden.";
+                break;
+              case 'Approved':
+                title = "✅ Gate Pass Ready!";
+                msg = "Your gate pass is approved. The QR code is ready to use.";
+                break;
+              case 'Rejected':
+                title = "❌ Request Rejected";
+                msg = "Your leave request was rejected. You may reapply after the cooldown.";
+                break;
+              case 'Exit':
+                title = "🚪 Exit Recorded";
+                msg = "Your exit from campus has been recorded. Return safely!";
+                break;
+              case 'Completed':
+                title = "🏠 Welcome Back!";
+                msg = "Entry recorded. Your gate pass is fully completed.";
+                break;
+            }
+
+            if (msg.isNotEmpty) {
+              _showSystemNotification(title, msg);
             }
           },
         )
         .subscribe();
   }
+
+  // ──────────────────────────── HELPERS ──────────────────────────────────────
 
   static Future<void> _showSystemNotification(String title, String body) async {
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
@@ -110,30 +151,22 @@ class NotificationService {
       enableLights: true,
       styleInformation: BigTextStyleInformation(''),
     );
-    
+
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
 
-    const NotificationDetails notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+    const NotificationDetails details =
+        NotificationDetails(android: androidDetails, iOS: iosDetails);
 
-    // Generate a unique ID
     final int notifId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-    await _localNotifications.show(
-      notifId,
-      title,
-      body,
-      notificationDetails,
-    );
+    await _localNotifications.show(notifId, title, body, details);
   }
 
   static void dispose() {
     _requestsChannel?.unsubscribe();
+    _wardenUpdateChannel?.unsubscribe();
   }
 }

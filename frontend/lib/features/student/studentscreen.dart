@@ -733,9 +733,10 @@ class _StudentScreenState extends State<StudentScreen> {
   }
 
   Widget _parentOption(ParentContact parent) {
-    bool isSelected = selectedParent == parent.phone;
+    final relationKey = parent.relation.toLowerCase(); // "father", "mother", "guardian"
+    bool isSelected = selectedParent == relationKey;
     return GestureDetector(
-      onTap: () => setState(() => selectedParent = parent.phone),
+      onTap: () => setState(() => selectedParent = relationKey),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

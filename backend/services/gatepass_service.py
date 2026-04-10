@@ -116,14 +116,27 @@ def create_gatepass(student_id, destination, reason, days, contact, language, le
             "Warden_id": assigned_warden,
             "attempts": 1,
             "current_parent": current_p_display,
-            "language": language
+            "language": language,
+            # NOTE: Do NOT set created_at manually — let Supabase auto-generate a proper timestamptz.
+            # A manual time-only string like "08:30:00+00" breaks the 6-hour cooldown calculation.
         }
         
-        # Safe addition of 'type' - falls back if column doesn't exist yet
+        # Try with 'type' column first; if column doesn't exist, retry without it
         try:
             insert_res = sb.table("Leave_request").insert({**base_insert, "type": "Standard"}).execute()
         except Exception as e:
-            print(f"Schema Warning: 'type' column not found, falling back. Error: {e}")
+            err_str = str(e).lower()
+            # Only retry if error is specifically about missing 'type' column (code 42703)
+            if "42703" in err_str or "column \"type\"" in err_str or "column 'type'" in err_str:
+                print(f"Schema note: 'type' column missing, retrying without it.")
+                insert_res = sb.table("Leave_request").insert(base_insert).execute()
+            else:
+                print(f"\u274c Insert error: {e}")
+                raise
+
+        if not insert_res.data:
+            # Fallback: maybe 'type' column is read-only or causing empty response
+            print("Schema note: retrying without 'type' column due to empty response.")
             insert_res = sb.table("Leave_request").insert(base_insert).execute()
 
         if insert_res.data:
@@ -138,5 +151,7 @@ def create_gatepass(student_id, destination, reason, days, contact, language, le
             return {"status": "error", "message": "Database Insert Failed (No data returned)"}
             
     except Exception as e:
-        print("Error creating gatepass:", e)
-        raise Exception(f"Database error: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"❌ create_gatepass failed: {type(e).__name__}: {e}")
+        raise Exception(str(e))

@@ -28,6 +28,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
   List<dynamic> _recentLogs = [];
   Map<String, dynamic>? _currentEmergency;
   Timer? _pollingTimer;
+  Timer? _logRefreshTimer;
   final MobileScannerController scannerController = MobileScannerController();
   bool _canUndo = false;
   String? _undoToken;
@@ -37,6 +38,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
     super.initState();
     _startPolling();
     _fetchRecentLogs();
+    // Auto-refresh logs every 5 seconds so guard sees real-time updates
+    _logRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchRecentLogs());
   }
 
   Future<void> _fetchRecentLogs() async {
@@ -73,11 +76,10 @@ class _SecurityScreenState extends State<SecurityScreen> {
      });
   }
 
-  // Replaced modal dialog with a non-blocking widget in the build method below
-
   @override
   void dispose() {
      _pollingTimer?.cancel();
+     _logRefreshTimer?.cancel();
      scannerController.dispose();
      super.dispose();
   }
@@ -112,7 +114,13 @@ class _SecurityScreenState extends State<SecurityScreen> {
              _canUndo = true;
              _undoToken = code;
              _fetchRecentLogs();
-             // Reset profile after 2 seconds or on next scan
+
+             // 🔄 UPDATE UI CACHE IMMEDIATELY
+             if (_lastScannedStudent != null && _lastScannedStudent!['request'] != null) {
+                _lastScannedStudent!['request']['Status'] = (action == 'exit') ? 'Exit' : 'Completed';
+             }
+
+             // Reset profile after 3 seconds or on next scan
              Future.delayed(const Duration(seconds: 3), () {
                 if (mounted && scanResult.contains("✅")) {
                    setState(() {
@@ -120,7 +128,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       _lastScannedStudent = null;
                       scanResult = "Scan student QR code";
                    });
-                   scannerController.start();
                 }
              });
           } else {
@@ -147,7 +154,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
         scanned = false;
       });
       _fetchRecentLogs();
-      scannerController.start();
     } catch (e) {
       debugPrint("Undo failed: $e");
     } finally {
@@ -223,7 +229,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
                                 scanResult = "Ready to Scan";
                                 _lastScannedStudent = null;
                               });
-                              scannerController.start();
                             },
                             icon: const Icon(Icons.refresh_rounded, size: 18),
                             label: const Text("Scan Next"),
@@ -382,11 +387,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     final log = _recentLogs[index];
                     String time = "";
                     try {
-                        DateTime dt = DateTime.parse(log['timestamp']);
+                        DateTime dt = DateTime.parse(log['Timestamp'] ?? log['timestamp']);
                         time = DateFormat("h:mm a").format(dt);
                     } catch(e) {}
                     
-                    bool isEntry = log['action'].toString().toLowerCase().contains('entry');
+                    bool isEntry = (log['Action'] ?? log['action']).toString().toLowerCase().contains('entry');
 
                     return Container(
                       width: 110,
@@ -479,7 +484,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
   Widget _buildProfileResult(Map<String, dynamic> data) {
     final student = data['student'];
     final req = data['request'];
-    
+
+    final String reqStatus = req != null ? (req['Status'] ?? '').toString() : '';
+    final bool exitDone = reqStatus == 'Exit' || reqStatus == 'Completed';
+    final bool entryDone = reqStatus == 'Completed';
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -523,43 +532,70 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       student['dept'] ?? "General",
                       style: const TextStyle(color: Colors.white38, fontSize: 12),
                     ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _statusChip("Exit", exitDone),
+                        _statusChip("Entry", entryDone),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => processQR(_lastScannedToken!, action: "entry"),
-                  icon: const Icon(Icons.login_rounded, size: 18),
-                  label: const Text("Confirm Entry"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade600,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+          // Show only the relevant next action based on current pass state
+          if (!exitDone && (reqStatus == 'Approved' || reqStatus == 'Emergency' || reqStatus == 'Warden_Approved'))
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => processQR(_lastScannedToken!, action: "exit"),
+                icon: const Icon(Icons.logout_rounded, size: 18),
+                label: const Text("Confirm Exit"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => processQR(_lastScannedToken!, action: "exit"),
-                  icon: const Icon(Icons.logout_rounded, size: 18),
-                  label: const Text("Confirm Exit"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+            )
+          else if (exitDone && !entryDone)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => processQR(_lastScannedToken!, action: "entry"),
+                icon: const Icon(Icons.login_rounded, size: 18),
+                label: const Text("Confirm Entry (Return)"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ],
-          ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withOpacity(0.4)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+                  SizedBox(width: 8),
+                  Text("Pass Completed - No Action Needed", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -587,8 +623,27 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 
+  Widget _statusChip(String label, bool done) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: done ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: done ? Colors.greenAccent.withOpacity(0.5) : Colors.orange.withOpacity(0.4)),
+      ),
+      child: Text(
+        "$label: ${done ? 'Done' : 'Pending'}",
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: done ? Colors.greenAccent : Colors.orangeAccent,
+        ),
+      ),
+    );
+  }
+
   void _showEmergencyDialog() {
-    final TextEditingController _uidController = TextEditingController();
+    final TextEditingController uidController = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -600,7 +655,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
             const Text("Enter Student ID to fetch their gatepass manually.", style: TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(height: 16),
             TextField(
-              controller: _uidController,
+              controller: uidController,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: "Enter UID (e.g. 23BDS001)",
@@ -616,7 +671,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () {
-              final uid = _uidController.text.trim();
+              final uid = uidController.text.trim();
               if (uid.isNotEmpty) {
                  Navigator.pop(ctx);
                  processQR(uid);
@@ -709,4 +764,4 @@ class _ScannerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
+}

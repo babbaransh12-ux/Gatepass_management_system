@@ -49,11 +49,23 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
                     parents.append({"name": "Guardian", "Phone": p["Guardian_Phone"], "Relation": "Guardian"})
         
         gender = s.get("Gender", "Male")
-        warden_res = sb.table("Warden").select("Name, Mobile_no").eq("Gender", gender).limit(1).execute()
-        w_info = warden_res.data[0] if warden_res.data else {"Name": "Default Warden", "Mobile_no": ""}
+        try:
+            warden_res = sb.table("Warden").select("Name, Mobile_no").eq("Gender", gender).limit(1).execute()
+            w_data = warden_res.data[0] if warden_res.data else {}
+            w_info = {"name": w_data.get("Name") or "Warden", "phone": w_data.get("Mobile_no") or ""}
+        except Exception:
+            try:
+                # Fallback: column might be named differently
+                warden_res = sb.table("Warden").select("*").eq("Gender", gender).limit(1).execute()
+                w_data = warden_res.data[0] if warden_res.data else {}
+                w_info = {"name": w_data.get("Name") or "Warden", "phone": w_data.get("Mobile_no") or w_data.get("Phone") or ""}
+            except Exception:
+                w_info = {"name": "Warden", "phone": ""}
 
-        active_req = sb.table("Leave_request").select("Req_id, Status").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Warden_Approved", "Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
-        active_id = active_req.data[0]["Req_id"] if active_req.data else None
+        active_req = sb.table("Leave_request").select("Req_id, Status, qr_token").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Warden_Approved", "Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
+        active_data = active_req.data[0] if active_req.data else {}
+        active_id = active_data.get("Req_id")
+        active_status = active_data.get("Status", "")
 
         reject_res = sb.table("Leave_request").select("*").eq("AU_id", student_id).eq("Status", "Rejected").order("Req_id", desc=True).limit(1).execute()
         
@@ -61,13 +73,17 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
         cooldown_remaining_ms = 0
         if reject_res.data:
             r = reject_res.data[0]
-            last_rejection = {"reason": r.get("Reason"), "timestamp": r.get("created_at")}
+            created_raw = r.get("created_at")
+            last_rejection = {"reason": r.get("Reason"), "timestamp": created_raw}
             try:
-                created_dt = datetime.fromisoformat(r.get("created_at").split('+')[0])
-                cooldown_end = created_dt + timedelta(hours=6)
-                if cooldown_end > datetime.now():
-                    cooldown_remaining_ms = int((cooldown_end - datetime.now()).total_seconds() * 1000)
-            except: pass
+                # Handle both timetz ("08:00:00+00") and timestamptz ("2026-04-08T08:00:00+00:00")
+                if created_raw and "T" in str(created_raw):
+                    created_dt = datetime.fromisoformat(str(created_raw).split('+')[0])
+                    cooldown_end = created_dt + timedelta(hours=6)
+                    if cooldown_end > datetime.now():
+                        cooldown_remaining_ms = int((cooldown_end - datetime.now()).total_seconds() * 1000)
+            except Exception:
+                pass
 
         history_res = sb.table("Leave_request").select("*").eq("AU_id", student_id).order("Req_id", desc=True).limit(5).execute()
 
@@ -82,17 +98,21 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
             "email": s.get("Email_id"),
             "gender": gender,
             "parents": parents,
-            "parent_info": parent_raw, # For edit profile screen
-            "warden_info": {"name": w_info["Name"], "phone": w_info["Mobile_no"]},
+            "parent_info": parent_raw,
+            "warden_info": w_info,
             "active_req_id": active_id,
+            "active_status": active_status,
+            "qr_token": active_data.get("qr_token"),
             "last_rejection": last_rejection,
             "cooldown_remaining_ms": cooldown_remaining_ms,
             "history": history_res.data
         }
     except Exception as e:
-        if isinstance(e, HTTPException): raise e
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ /student/profile/{student_id} error: {type(e).__name__}: {e}")
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/update-profile-pic")
@@ -169,6 +189,9 @@ def request_gp(data: GatepassRequest, current_user: dict = Depends(get_current_u
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ /student/request error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status/{req_id}")
@@ -189,7 +212,7 @@ def active_pass(student_id: str, current_user: dict = Depends(get_current_user))
     try:
         print(f"🔍 DEBUG: Fetching active pass for {student_id}")
         sb = get_db()
-        res = sb.table("Leave_request").select("*").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Approved", "Exit", "Deactivated"]).order("Req_id", desc=True).limit(1).execute()
+        res = sb.table("Leave_request").select("*").eq("AU_id", student_id).in_("Status", ["Pending", "Parent_Approved", "Approved", "Exit"]).order("Req_id", desc=True).limit(1).execute()
         
         if res.data:
             print(f"✅ DEBUG: Found active pass: {res.data[0].get('Req_id')}")
