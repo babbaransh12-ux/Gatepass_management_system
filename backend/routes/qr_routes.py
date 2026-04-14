@@ -141,6 +141,16 @@ def verify_scan(token: str, action: Optional[str] = Query(None), current_user: d
         except Exception as e:
             print(f"❌ Gate_log insert failed: {e}")
 
+        # 🗑️ Auto-delete emergency pass once both exit AND entry are done (Status = Completed)
+        if new_status == "Completed":
+            try:
+                pass_type = req.get("type") or ""
+                if pass_type.lower() == "emergency":
+                    sb.table("Leave_request").delete().eq("Req_id", req_id).execute()
+                    print(f"🗑️ Emergency pass {req_id} deleted after completion")
+            except Exception as e:
+                print(f"❌ Failed to delete emergency pass: {e}")
+
         # Notify Parent
         try:
             current_parent = req.get("current_parent") or "Father"
@@ -239,11 +249,16 @@ def get_recent_logs(current_user: dict = Depends(get_current_user)):
             # Generate fallback avatar if no image
             if not image:
                 image = f"https://ui-avatars.com/api/?name={name}&background=2D5AF0&color=fff"
+            # Use correct capitalized column names from Gate_log table
+            action_val = row.get("Action") or row.get("action") or "Unknown"
+            timestamp_val = row.get("Timestamp") or row.get("timestamp")
             result.append({
                 "student_name": name,
                 "student_image": image,
-                "action": (row.get("action") or "Unknown").capitalize(),
-                "timestamp": row.get("timestamp")
+                "Action": action_val.capitalize(),
+                "action": action_val.capitalize(),
+                "Timestamp": timestamp_val,
+                "timestamp": timestamp_val,
             })
         return result
     except Exception as e:

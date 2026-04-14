@@ -53,142 +53,145 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 20),
-                  // PREMIUM LOGO AREA
-                  Hero(
-                    tag: 'app_logo',
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withOpacity(0.2), width: 1.5),
-                      ),
-                      child: const Icon(Icons.security_rounded, size: 50, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "E- GatePass",
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const Text(
-                    "Smart Campus Management",
-                    style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w300),
-                  ),
-                  const SizedBox(height: 48),
-
-                  // GLASSMORPHISM LOGIN CARD
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(32),
-                    child: BackdropFilter(
-                      filter: ColorFilter.mode(Colors.white.withOpacity(0.1), BlendMode.overlay),
-                      child: Container(
-                        padding: const EdgeInsets.all(32),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(32),
-                          border: Border.all(color: Colors.white.withOpacity(0.2)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Welcome Back",
-                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A1C21)),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              "Select your role to continue",
-                              style: TextStyle(fontSize: 13, color: Colors.grey),
-                            ),
-                            const SizedBox(height: 24),
-
-                            // CUSTOM ROLE SELECTOR
-                            _buildRoleSelector(),
-
-                            const SizedBox(height: 24),
-                            _buildTextField(
-                              controller: userController,
-                              label: "User ID",
-                              hint: "e.g. AUID",
-                              icon: Icons.badge_outlined,
-                            ),
-                            const SizedBox(height: 20),
-                            _buildTextField(
-                              controller: passController,
-                              label: "Password",
-                              hint: "••••••••",
-                              icon: Icons.lock_outline_rounded,
-                              isPassword: true,
-                            ),
-                            const SizedBox(height: 32),
-
-                            // LOGIN BUTTON
-                            SizedBox(
-                              width: double.infinity,
-                              height: 56,
-                              child: ElevatedButton(
-                                onPressed: _isLoading ? null : _handleLogin,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2D5AF0),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  elevation: 0,
-                                ),
-                                child: _isLoading
-                                    ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                    : const Text("Sign In", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 450),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 20),
+                          // PREMIUM LOGO AREA
+                          Hero(
+                            tag: 'app_logo',
+                            child: Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.15),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white.withOpacity(0.2), width: 1.5),
                               ),
+                              child: const Icon(Icons.security_rounded, size: 50, color: Colors.white),
                             ),
-
-                            const SizedBox(height: 25),
-
-                            /// Demo Credentials
-                            Center(
+                          ),
+                          const SizedBox(height: 24),
+                          const Text(
+                            "E- GatePass",
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const Text(
+                            "Smart Campus Management",
+                            style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w300),
+                          ),
+                          const SizedBox(height: 48),
+        
+                          // GLASSMORPHISM LOGIN CARD
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(32),
+                            child: BackdropFilter(
+                              filter: ColorFilter.mode(Colors.white.withOpacity(0.1), BlendMode.overlay),
                               child: Container(
-                                padding: const EdgeInsets.all(16),
+                                padding: const EdgeInsets.all(32),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.grey.shade200),
+                                  color: Colors.white.withOpacity(0.9),
+                                  borderRadius: BorderRadius.circular(32),
+                                  border: Border.all(color: Colors.white.withOpacity(0.2)),
                                 ),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      "System Access",
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1C21)),
+                                      "Welcome Back",
+                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A1C21)),
                                     ),
-                                    const SizedBox(height: 10),
-                                    _buildDemoRow("Student ID", "Father's Phone"),
-                                    _buildDemoRow("Warden", "warden123"),
-                                    _buildDemoRow("Security", "security123"),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      "Select your role to continue",
+                                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                                    ),
+                                    const SizedBox(height: 24),
+        
+                                    // CUSTOM ROLE SELECTOR
+                                    _buildRoleSelector(),
+        
+                                    const SizedBox(height: 24),
+                                    _buildTextField(
+                                      controller: userController,
+                                      label: "User ID",
+                                      hint: "e.g. AUID",
+                                      icon: Icons.badge_outlined,
+                                    ),
+                                    const SizedBox(height: 20),
+                                    _buildTextField(
+                                      controller: passController,
+                                      label: "Password",
+                                      hint: "••••••••",
+                                      icon: Icons.lock_outline_rounded,
+                                      isPassword: true,
+                                    ),
+                                    const SizedBox(height: 32),
+        
+                                    // LOGIN BUTTON
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 56,
+                                      child: ElevatedButton(
+                                        onPressed: _isLoading ? null : _handleLogin,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF2D5AF0),
+                                          foregroundColor: Colors.white,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                          elevation: 0,
+                                        ),
+                                        child: _isLoading
+                                            ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                            : const Text("Sign In", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ),
+        
+                                    const SizedBox(height: 25),
+        
+                                    /// Demo Credentials
+                                    Center(
+                                      child: Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: Colors.grey.shade200),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            const Text(
+                                              "System Access",
+                                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1C21)),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            _buildDemoRow("Student ID", "Father's Phone"),
+                                            _buildDemoRow("Warden", "warden123"),
+                                            _buildDemoRow("Security", "security123"),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 32),
+                          const Text(
+                            "Secure • Automated • Efficient",
+                            style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w400),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                  const Text(
-                    "Secure • Automated • Efficient",
-                    style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w400),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
             ),
           ),
         ),

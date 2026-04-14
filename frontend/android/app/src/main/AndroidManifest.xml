@@ -1,11 +1,33 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+     <!-- ===================== -->
+    <!--  REQUIRED PERMISSIONS -->
+    <!-- ===================== -->
+
+    <!-- Internet (API calls, backend communication) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Network state (check connectivity) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- Camera (QR scan / gatepass scanning) -->
     <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Storage (optional: if uploading images/files) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+
+    <!-- Notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Optional: vibration for alerts -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+
+
     <application
-        android:label="e_gatepass"
+        android:label="E-Gatepass"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
             android:exported="true"

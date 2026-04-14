@@ -18,6 +18,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   int approvedToday = 0;
   int rejectedToday = 0;
   int activePasses = 0;
+  int emergencyPasses = 0;
   int insideCampus = 0;
   int outsideCampus = 0;
   int pendingReview = 0;
@@ -42,6 +43,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           approvedToday = stats['approved_today'] ?? 0;
           rejectedToday = stats['rejected_today'] ?? 0;
           activePasses = stats['active_passes'] ?? 0;
+          emergencyPasses = stats['emergency_passes'] ?? 0;
           insideCampus = stats['inside_campus'] ?? 0;
           outsideCampus = stats['outside_campus'] ?? 0;
           pendingReview = stats['pending_review'] ?? 0;
@@ -194,8 +196,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _subStat("Active Passes", activePasses.toString(), Icons.description_outlined, Colors.blue),
-              _subStat("Pending Review", pendingReview.toString(), Icons.access_time_rounded, Colors.purple),
-              _subStat("Total Students", totalStudents.toString(), Icons.people_outline_rounded, Colors.indigo),
+              _subStat("Emergency", emergencyPasses.toString(), Icons.emergency_rounded, Colors.redAccent),
+              _subStat("Pending", pendingReview.toString(), Icons.access_time_rounded, Colors.purple),
+              _subStat("Students", totalStudents.toString(), Icons.people_outline_rounded, Colors.indigo),
             ],
           ),
           const SizedBox(height: 32),

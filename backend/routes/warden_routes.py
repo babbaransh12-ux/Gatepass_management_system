@@ -55,8 +55,8 @@ def get_pending(current_user: dict = Depends(get_current_user)):
 def get_active_passes(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        # Find leaves that are currently Approved or Exit (meaning they are actively off-campus)
-        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, created_at, Status").in_("Status", ["Approved", "Exit"]).execute()
+        # Find leaves that are currently Approved, Exit, or Emergency (actively off-campus or in-progress)
+        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, created_at, Status, type").in_("Status", ["Approved", "Exit", "Emergency", "Warden_Approved"]).execute()
         
         data = res.data
         for req in data:
@@ -113,13 +113,16 @@ def get_stats(current_user: dict = Depends(get_current_user)):
         sb = get_db()
         today = datetime.now().strftime('%Y-%m-%d')
         
-        # Requests stats
-        app_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Approved").gte("created_at", today).execute()
+        # Requests stats - count all active statuses for approved_today
+        app_res = sb.table("Leave_request").select("Req_id", count='exact').in_("Status", ["Approved", "Warden_Approved"]).gte("created_at", today).execute()
         rej_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Rejected").gte("created_at", today).execute()
-        act_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Approved").execute()
+        # active_passes = all passes where student is off-campus or has valid pass (Approved, Exit, Emergency, Warden_Approved)
+        act_res = sb.table("Leave_request").select("Req_id", count='exact').in_("Status", ["Approved", "Exit", "Emergency", "Warden_Approved"]).execute()
         pend_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Parent_Approved").execute()
+        # Emergency passes count
+        emg_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Emergency").execute()
         
-        # Occupancy stats
+        # Occupancy stats — students currently outside campus (Exit status)
         outside_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Exit").execute()
         total_students_res = sb.table("Student").select("AU_id", count='exact').execute()
         
@@ -132,6 +135,7 @@ def get_stats(current_user: dict = Depends(get_current_user)):
             "approved_today": app_res.count if app_res.count is not None else 0,
             "rejected_today": rej_res.count if rej_res.count is not None else 0,
             "active_passes": act_res.count if act_res.count is not None else 0,
+            "emergency_passes": emg_res.count if emg_res.count is not None else 0,
             "pending_review": pend_res.count if pend_res.count is not None else 0,
             "total_students": total_students,
             "outside_campus": outside_campus,
