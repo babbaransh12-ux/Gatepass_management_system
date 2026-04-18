@@ -17,7 +17,16 @@ def voice_call(req_id: int, retry: int = Query(0)):
             return Response(content="Not Found", status_code=404)
         
         req = res.data[0]
-        lang = req.get("language", "hi").lower()
+        lang_raw = req.get("language", "hi").lower()
+        
+        # Mapping for full language names to codes
+        lang_map = {
+            "english": "en",
+            "hindi": "hi",
+            "punjabi": "pa"
+        }
+        lang = lang_map.get(lang_raw, lang_raw.split("-")[0])
+        
         dest = req.get("Destination", "Outing")
         
         stu_res = sb.table("Student").select("Name").eq("AU_id", req["AU_id"]).execute()
@@ -37,13 +46,13 @@ def voice_call(req_id: int, retry: int = Query(0)):
                 "msg": f"नमस्ते, यह ई-गेट-पास है। छात्र {student_name} को {dest} जाने के लिए अनुमति चाहिए। अनुमति देने के लिए 1 दबाएं, अस्वीकार करने के लिए 2 दबाएं।" if not is_emergency else f"नमस्ते, यह ई-गेट-पास से सुरक्षा सूचना है। छात्र {student_name} ने अभी {dest} जाने के लिए आपातकालीन पास पर परिसर छोड़ दिया है। किसी कार्रवाई की आवश्यकता नहीं है।"
             },
             "pa": {
-                "voice_lang": "pa-IN",
-                "voice_name": "Google.pa-IN-Standard-A",
-                "msg": f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-ਾਸ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਲਈ {dest} ਜਾਣ ਦੀ ਆਗਿਆ ਚਾਹੀਦੀ ਹੈ। ਆਗਿਆ ਦੇਣ ਲਈ 1 ਦਬਾਓ, ਅਸਵੀਕਾਰ ਕਰਨ ਲਈ 2 ਦਬਾਓ।" if not is_emergency else f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-पास ਤੋਂ ਸੁਰੱਖਿਆ ਜਾਣਕਾਰੀ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਨੇ ਹੁਣੇ {dest} ਜਾਣ ਲਈ ਐਮਰਜੈਂਸੀ ਪਾਸ ਤੇ ਕੈਂਪਸ ਛੱਡ ਦਿੱਤਾ ਹੈ। ਕਿਸੇ ਕਾਰਵਾਈ ਦੀ ਲੋੜ ਨਹੀਂ ਹੈ।"
+                "voice_lang": "hi-IN",
+                "voice_name": "Polly.Aditi",
+                "msg": f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-ਪਾਸ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਲਈ {dest} ਜਾਣ ਦੀ ਆਗਿਆ ਚਾਹੀਦੀ ਹੈ। ਆਗਿਆ ਦੇਣ ਲਈ 1 ਦਬਾਓ, ਅਸਵੀਕਾਰ ਕਰਨ ਲਈ 2 ਦਬਾਓ।" if not is_emergency else f"ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ, ਇਹ ਈ-ਗੇਟ-ਪਾਸ ਤੋਂ ਸੁਰੱਖਿਆ ਜਾਣਕਾਰੀ ਹੈ। ਵਿਦਿਆਰਥੀ {student_name} ਨੇ ਹੁਣੇ {dest} ਜਾਣ ਲਈ ਐਮਰਜੈਂਸੀ ਪਾਸ ਤੇ ਕੈਂਪਸ ਛੱਡ ਦਿੱਤਾ ਹੈ। ਕਿਸੇ ਕਾਰਵਾਈ ਦੀ ਲੋੜ ਨਹੀਂ ਹੈ।"
             }
         }
 
-        config = scripts.get(lang, scripts["hi"])
+        config = scripts.get(lang.split("-")[0], scripts["hi"])
         base_url = os.getenv("BASE_URL", "").rstrip("/")
         
         twiml = '<?xml version="1.0" encoding="UTF-8"?>\n<Response>'
@@ -51,7 +60,7 @@ def voice_call(req_id: int, retry: int = Query(0)):
         if not is_emergency:
             twiml += (
                 f'<Gather numDigits="1" action="{base_url}/ivr/handle-response/{req_id}?retry={retry}" method="POST" timeout="10">'
-                f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">{config["msg"]} प्रेस 3 दोहराने के लिए। (Press 3 to repeat.)</Say>'
+                f'<Say language="{config["voice_lang"]}" voice="{config["voice_name"]}">{config["msg"]} ਦੁਹਰਾਉਣ ਲਈ 3 ਦਬਾਓ। (Press 3 to repeat.)</Say>'
                 '</Gather>'
             )
             if retry < 2:
@@ -82,20 +91,53 @@ def handle_response(
     twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>'
     base_url = os.getenv("BASE_URL", "").rstrip("/")
     
+    # Fetch language for localized response
+    res = sb.table("Leave_request").select("language").eq("Req_id", req_id).execute()
+    lang_raw = res.data[0].get("language", "hi").lower() if res.data else "hi"
+    
+    lang_map = {"english": "en", "hindi": "hi", "punjabi": "pa"}
+    lang = lang_map.get(lang_raw, lang_raw.split("-")[0])
+
+    feedback = {
+        "en": {
+            "approve": "Thank you, permission granted. Have a nice day.",
+            "reject": "Okay, permission rejected.",
+            "wrong": "Wrong entry.",
+            "lang": "en-IN",
+            "voice": "Polly.Aditi"
+        },
+        "hi": {
+            "approve": "धन्यवाद, अनुमति प्रदान की गई है। आपका दिन शुभ हो।",
+            "reject": "ठीक है, अनुमति अस्वीकार कर दी गई है।",
+            "wrong": "गलत प्रविष्टि।",
+            "lang": "hi-IN",
+            "voice": "Polly.Aditi"
+        },
+        "pa": {
+            "approve": "ਧੰਨਵਾਦ, ਆਗਿਆ ਦੇ ਦਿੱਤੀ ਗਈ ਹੈ। ਤੁਹਾਡਾ ਦਿਨ ਸ਼ੁਭ ਹੋਵੇ।",
+            "reject": "ਠੀਕ ਹੈ, ਆਗਿਆ ਅਸਵੀਕਾਰ ਕਰ ਦਿੱਤੀ ਗਈ ਹੈ।",
+            "wrong": "ਗਲਤ ਐਂਟਰੀ।",
+            "lang": "hi-IN",
+            "voice": "Polly.Aditi"
+        }
+    }
+
+    conf = feedback.get(lang.split("-")[0], feedback["hi"])
+
     if Digits == "1":
         sb.table("Leave_request").update({"Status": "Parent_Approved"}).eq("Req_id", req_id).execute()
-        twiml += '<Say language="hi-IN" voice="Polly.Aditi">धन्यवाद, अनुमति प्रदान की गई है। आपका दिन शुभ हो। (Thank you, permission granted. Have a nice day.)</Say>'
+        twiml += f'<Say language="{conf["lang"]}" voice="{conf["voice"]}">{conf["approve"]}</Say>'
     elif Digits == "2":
         sb.table("Leave_request").update({"Status": "Rejected", "Reason": "Rejected by Parent"}).eq("Req_id", req_id).execute()
-        twiml += '<Say language="hi-IN" voice="Polly.Aditi">ठीक है, अनुमति अस्वीकार कर दी गई है। (Okay, permission rejected.)</Say>'
+        twiml += f'<Say language="{conf["lang"]}" voice="{conf["voice"]}">{conf["reject"]}</Say>'
     elif Digits == "3":
         twiml += f'<Redirect method="POST">{base_url}/ivr/voice/{req_id}?retry={retry}</Redirect>'
     else:
         if retry < 2:
-            twiml += f'<Say language="hi-IN" voice="Polly.Aditi">गलत प्रविष्टि। (Wrong entry.)</Say>'
+            twiml += f'<Say language="{conf["lang"]}" voice="{conf["voice"]}">{conf["wrong"]}</Say>'
             twiml += f'<Redirect method="POST">{base_url}/ivr/voice/{req_id}?retry={retry + 1}</Redirect>'
         else:
-            twiml += '<Say language="hi-IN" voice="Polly.Aditi">असुविधा के लिए खेद है। (Sorry for the inconvenience.)</Say>'
+            twiml += f'<Say language="{conf["lang"]}" voice="{conf["voice"]}">Sorry for the inconvenience.</Say>'
             twiml += '<Hangup/>'
         
     twiml += "</Response>"
