@@ -155,8 +155,7 @@ class _StudentScreenState extends State<StudentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
+    return Scaffold(
         backgroundColor: const Color(0xFFF8F9FE),
         drawer: SafeArea(child: _buildDrawer()),
         body: _isLoadingProfile
@@ -173,19 +172,17 @@ class _StudentScreenState extends State<StudentScreen> {
                         _buildInfoCards(),
                         const SizedBox(height: 32),
                         if (_currentCooldownMs > 0) _buildCooldownHeader(),
-                        if (_profile?.history.isNotEmpty ?? false) _buildRecentActivity(),
-                        const SizedBox(height: 32),
                         _buildRequestForm(),
                       ]),
                     ),
                   ),
                 ],
               ),
-      ),
-    );
+      );
   }
 
   Widget _buildHeader() {
+    final statusBarHeight = MediaQuery.of(context).padding.top;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -195,7 +192,7 @@ class _StudentScreenState extends State<StudentScreen> {
         ),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(40)),
       ),
-      padding: const EdgeInsets.only(top: 24, bottom: 40, left: 24, right: 24),
+      padding: EdgeInsets.only(top: statusBarHeight + 16, bottom: 40, left: 24, right: 24),
       child: Column(
         children: [
           Row(
@@ -809,78 +806,7 @@ class _StudentScreenState extends State<StudentScreen> {
     );
   }
 
-  Widget _buildRecentActivity() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1A1C21))),
-            TextButton(onPressed: () {}, child: const Text("See All", style: TextStyle(color: Color(0xFF2D5AF0)))),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...(_profile!.history.map((h) => _buildHistoryItem(h)).toList()),
-      ],
-    );
-  }
 
-  Widget _buildHistoryItem(Map<String, dynamic> h) {
-    Color statusColor;
-    IconData statusIcon;
-    switch (h['Status']) {
-      case 'Rejected':
-        statusColor = Colors.redAccent;
-        statusIcon = Icons.cancel_rounded;
-        break;
-      case 'Entry':
-        statusColor = Colors.green;
-        statusIcon = Icons.check_circle_rounded;
-        break;
-      case 'Exit':
-        statusColor = Colors.orange;
-        statusIcon = Icons.directions_run_rounded;
-        break;
-      default:
-        statusColor = const Color(0xFF2D5AF0);
-        statusIcon = Icons.pending_rounded;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: statusColor.withOpacity(0.1), shape: BoxShape.circle),
-            child: Icon(statusIcon, color: statusColor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(h['Destination'] ?? 'Campus Outing', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                Text(h['leave_date'] ?? 'No date', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-            child: Text(h['Status'] ?? 'Unknown', style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showErrorDialog(String title, String message) {
     showDialog(

@@ -250,8 +250,11 @@ def get_recent_logs(current_user: dict = Depends(get_current_user)):
             if not image:
                 image = f"https://ui-avatars.com/api/?name={name}&background=2D5AF0&color=fff"
             # Use correct capitalized column names from Gate_log table
-            action_val = row.get("Action") or row.get("action") or "Unknown"
+            action_val = (row.get("Action") or row.get("action") or "").lower()
             timestamp_val = row.get("Timestamp") or row.get("timestamp")
+            # Only include valid gate actions — skip any stale 'Approved' or other status records
+            if action_val not in ("exit", "entry"):
+                continue
             result.append({
                 "student_name": name,
                 "student_image": image,

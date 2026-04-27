@@ -7,14 +7,17 @@ _supabase: Client = None
 def init_db():
     global _supabase
     try:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_ANON_KEY")
-        if not url or not key:
-            print("WARNING: SUPABASE_URL or SUPABASE_ANON_KEY environment variables are missing.")
+        url = os.getenv("SUPABASE_URL", "").strip()
+        
+        # Use ONLY the Service Role Key — bypasses RLS for all backend operations
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        
+        if not url or not service_key:
+            print("ERROR: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing in .env!")
             return
 
-        _supabase = create_client(url, key)
-        print("Connected to Supabase DB successfully.")
+        _supabase = create_client(url, service_key)
+        print("✅ Connected to Supabase DB with Service Role Key (RLS bypassed).")
     except Exception as e:
         print(f"Error connecting to Supabase: {e}")
 

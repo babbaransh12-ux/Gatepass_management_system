@@ -385,13 +385,16 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   separatorBuilder: (context, index) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
                     final log = _recentLogs[index];
+                    final String rawAction = (log['Action'] ?? log['action'] ?? '').toString().toLowerCase();
+                    // Skip stale records that are not valid gate actions
+                    if (rawAction != 'exit' && rawAction != 'entry') return const SizedBox.shrink();
                     String time = "";
                     try {
                         DateTime dt = DateTime.parse(log['Timestamp'] ?? log['timestamp']);
                         time = DateFormat("h:mm a").format(dt);
                     } catch(e) {}
                     
-                    bool isEntry = (log['Action'] ?? log['action']).toString().toLowerCase().contains('entry');
+                    bool isEntry = rawAction.contains('entry');
 
                     return Container(
                       width: 110,

@@ -14,6 +14,7 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
   bool _isLoading = true;
   List<dynamic> _history = [];
   String? _error;
+  String _selectedFilter = "All"; // All, Completed, Rejected
 
   @override
   void initState() {
@@ -27,8 +28,6 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
       if (uid == null) throw Exception("User not logged in");
       
       final repo = StudentRepository();
-      // We already have a history method in getStudentProfile or similar, 
-      // but let's assume we can fetch it directly or from profile.
       final profile = await repo.getStudentProfile(uid);
       
       if (mounted) {
@@ -47,6 +46,23 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
     }
   }
 
+  List<dynamic> get _filteredHistory {
+    if (_selectedFilter == "All") return _history;
+    return _history.where((item) {
+      final status = item['Status'] ?? '';
+      if (_selectedFilter == "Approved") {
+        return ["Approved", "Parent_Approved", "Warden_Approved"].contains(status);
+      } else if (_selectedFilter == "Completed") {
+        return ["Exit", "Entry", "Completed"].contains(status);
+      } else if (_selectedFilter == "Rejected") {
+        return ["Rejected", "Rejected_by_Parent", "Rejected_by_Warden"].contains(status);
+      } else if (_selectedFilter == "Pending") {
+        return ["Pending"].contains(status);
+      }
+      return true;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -57,22 +73,75 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchHistory,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(child: Text("Error: $_error"))
-                : _history.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: _history.length,
-                        itemBuilder: (context, index) {
-                          final item = _history[index];
-                          return _buildHistoryCard(item);
-                        },
-                      ),
+      body: Column(
+        children: [
+          _buildFilterBar(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _fetchHistory,
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(child: Text("Error: $_error"))
+                      : _filteredHistory.isEmpty
+                          ? _buildEmptyState()
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              itemCount: _filteredHistory.length,
+                              itemBuilder: (context, index) {
+                                final item = _filteredHistory[index];
+                                return _buildHistoryCard(item);
+                              },
+                            ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Row(
+          children: [
+            _filterChip("All"),
+            const SizedBox(width: 8),
+            _filterChip("Pending"),
+            const SizedBox(width: 8),
+            _filterChip("Approved"),
+            const SizedBox(width: 8),
+            _filterChip("Completed"),
+            const SizedBox(width: 8),
+            _filterChip("Rejected"),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChip(String label) {
+    bool isSelected = _selectedFilter == label;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedFilter = label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF2D5AF0) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey.shade600,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 13,
+          ),
+        ),
       ),
     );
   }
@@ -107,6 +176,8 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
     IconData statusIcon;
     switch (status) {
       case 'Rejected':
+      case 'Rejected_by_Parent':
+      case 'Rejected_by_Warden':
         statusColor = Colors.redAccent;
         statusIcon = Icons.cancel_rounded;
         break;
@@ -115,6 +186,7 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
         statusIcon = Icons.history_rounded;
         break;
       case 'Exit':
+      case 'Entry':
         statusColor = Colors.orange;
         statusIcon = Icons.directions_run_rounded;
         break;
@@ -123,6 +195,10 @@ class _StudentHistoryScreenState extends State<StudentHistoryScreen> {
       case 'Parent_Approved':
         statusColor = Colors.green;
         statusIcon = Icons.check_circle_rounded;
+        break;
+      case 'Completed':
+        statusColor = Colors.teal;
+        statusIcon = Icons.done_all_rounded;
         break;
       default:
         statusColor = const Color(0xFF2D5AF0);

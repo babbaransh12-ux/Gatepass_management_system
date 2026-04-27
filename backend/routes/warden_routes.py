@@ -13,17 +13,14 @@ router = APIRouter(prefix="/warden", tags=["warden"])
 def get_pending(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        # GENDER-BASED ROUTING: Only show students that match the logged-in Warden's gender.
-        
-        # 1. Fetch only Parent_Approved requests assigned to THIS warden
-        w_id = current_user.get("user_id")
-        try:
-            w_id = int(str(w_id).split("-")[-1]) if "-" in str(w_id) else int(w_id)
-        except: pass
+        # GENDER-BASED ROUTING: Fetch ALL Parent_Approved requests, then filter by matching student gender.
+        # This works even when Warden_id is not pre-assigned on the Leave_request.
 
-        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, Reason, leave_date, Status")\
+        warden_gender = current_user.get("gender")  # e.g., "Male" or "Female"
+
+        # 1. Fetch ALL Parent_Approved requests (no Warden_id filter)
+        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Days, Reason, leave_date, Status, Warden_id")\
             .eq("Status", "Parent_Approved")\
-            .eq("Warden_id", w_id)\
             .execute()
         
         data = []
@@ -32,8 +29,9 @@ def get_pending(current_user: dict = Depends(get_current_user)):
             s_res = sb.table("Student").select("Name, Student_image, Room_no, Gender").eq("AU_id", req.get("AU_id")).execute()
             student = s_res.data[0] if s_res.data else {}
             
-            # Skip if student gender doesn't match Warden gender
-            if current_user.get("gender") and student.get("Gender") != current_user["gender"]:
+            # 3. Gender-based routing: skip if student gender doesn't match this warden's gender
+            student_gender = student.get("Gender")
+            if warden_gender and student_gender and student_gender != warden_gender:
                 continue
 
             name = student.get("Name") or "Unknown"
@@ -42,13 +40,17 @@ def get_pending(current_user: dict = Depends(get_current_user)):
             req["room"] = student.get("Room_no") or ""
             
             # Map Parent_Approved to Pending so Flutter enum doesn't crash
-            req["Reason"] = f"( Parent Approved) {req.get('Reason', '')}"
+            req["Reason"] = f"(Parent Approved) {req.get('Reason', '')}"
             req["Status"] = "Pending"
             
             data.append(req)
-        
+
+        print(f"✅ /warden/pending → {len(data)} requests for gender={warden_gender}")
         return data
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ /warden/pending error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/active-passes")

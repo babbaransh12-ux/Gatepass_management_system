@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/navigation/logout_button.dart';
@@ -14,7 +15,8 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final WardenRepository repository = WardenRepository();
-  
+  Timer? _refreshTimer;
+
   int approvedToday = 0;
   int rejectedToday = 0;
   int activePasses = 0;
@@ -31,6 +33,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void initState() {
     super.initState();
     _loadData();
+    // Auto-refresh every 30 seconds so stats stay current
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadData());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {

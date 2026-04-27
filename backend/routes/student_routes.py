@@ -85,7 +85,38 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
             except Exception:
                 pass
 
-        history_res = sb.table("Leave_request").select("*").eq("AU_id", student_id).order("Req_id", desc=True).limit(5).execute()
+        # FETCH RECENT HISTORY (Acceptance/Rejection only)
+        history_query = sb.table("Leave_request")\
+            .select("*")\
+            .eq("AU_id", student_id)\
+            .in_("Status", ["Approved", "Rejected", "Completed", "Exit", "Entry"])\
+            .order("Req_id", desc=True)\
+            .limit(10)\
+            .execute()
+
+        # Perform 4-hour filter in Python due to 'time with time zone' DB type limitation
+        recent_history = []
+        now_utc = datetime.utcnow()
+        from datetime import time
+        for r in history_query.data:
+            c_time_raw = r.get("created_at")
+            if not c_time_raw:
+                continue
+            try:
+                if "T" in c_time_raw:
+                    dt = datetime.fromisoformat(c_time_raw.split('+')[0])
+                else:
+                    t_str = c_time_raw.split('+')[0]
+                    t_obj = time.fromisoformat(t_str)
+                    dt = datetime.combine(now_utc.date(), t_obj)
+                    if dt > now_utc:
+                        dt -= timedelta(days=1)
+                
+                if (now_utc - dt) <= timedelta(hours=4):
+                    recent_history.append(r)
+            except Exception as e:
+                print(f"Time parse error: {e}")
+                pass
 
         return {
             "status": "success",
@@ -105,7 +136,7 @@ def get_profile(student_id: str, current_user: dict = Depends(get_current_user))
             "qr_token": active_data.get("qr_token"),
             "last_rejection": last_rejection,
             "cooldown_remaining_ms": cooldown_remaining_ms,
-            "history": history_res.data
+            "history": recent_history
         }
     except Exception as e:
         import traceback
@@ -230,7 +261,36 @@ def active_pass(student_id: str, current_user: dict = Depends(get_current_user))
 def history(student_id: str, current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        res = sb.table("Leave_request").select("*").eq("AU_id", student_id).order("Req_id", desc=True).limit(5).execute()
-        return {"status": "success", "history": res.data}
+        history_query = sb.table("Leave_request")\
+            .select("*")\
+            .eq("AU_id", student_id)\
+            .in_("Status", ["Approved", "Rejected", "Completed", "Exit", "Entry"])\
+            .order("Req_id", desc=True)\
+            .limit(10)\
+            .execute()
+        
+        recent_history = []
+        now_utc = datetime.utcnow()
+        from datetime import time, timedelta
+        for r in history_query.data:
+            c_time_raw = r.get("created_at")
+            if not c_time_raw:
+                continue
+            try:
+                if "T" in c_time_raw:
+                    dt = datetime.fromisoformat(c_time_raw.split('+')[0])
+                else:
+                    t_str = c_time_raw.split('+')[0]
+                    t_obj = time.fromisoformat(t_str)
+                    dt = datetime.combine(now_utc.date(), t_obj)
+                    if dt > now_utc:
+                        dt -= timedelta(days=1)
+                
+                if (now_utc - dt) <= timedelta(hours=4):
+                    recent_history.append(r)
+            except Exception as e:
+                pass
+                
+        return {"status": "success", "history": recent_history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
