@@ -93,14 +93,57 @@ class _RequestsScreenState extends State<RequestsScreen> {
         ],
       ),
 
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : requests.isEmpty
-          ? const Center(child: Text("No pending requests"))
-          : Padding(
-        padding: const EdgeInsets.all(20),
+      body: RefreshIndicator(
+        onRefresh: loadRequests,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : requests.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.check_circle_outline_rounded,
+                              size: 80,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          const Text(
+                            "You're all caught up!",
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            "There are no pending requests to review.",
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Padding(
+                padding: const EdgeInsets.all(20),
 
-        child: CardSwiper(
+                child: CardSwiper(
+                  allowedSwipeDirection: const AllowedSwipeDirection.symmetric(horizontal: true, vertical: false),
 
           controller: controller,
 
@@ -148,8 +191,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
           },
 
         ),
+              ),
+            ),
+          ],
+        ),
       ),
-
       /// Manual approve / reject buttons
       floatingActionButton: requests.isEmpty
           ? null

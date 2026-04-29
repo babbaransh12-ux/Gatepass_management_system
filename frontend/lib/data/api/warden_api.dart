@@ -98,4 +98,14 @@ class WardenApi {
   Future<dynamic> getHistory(String date) async {
     return await ApiClient.get("/warden/history?date=$date");
   }
+
+  /// Fetch approved + rejected activity for a specific date
+  Future<dynamic> getActivity(String date) async {
+    return await ApiClient.get("/warden/activity?date=$date");
+  }
+
+  /// Fetch gate logs for a specific date
+  Future<dynamic> getGateLogs(String date) async {
+    return await ApiClient.get("/warden/gate-logs?date=$date");
+  }
 }

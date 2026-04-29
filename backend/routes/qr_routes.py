@@ -46,12 +46,17 @@ def send_notification(phone, txt):
         print(f"❌ Notification Error: {e}")
 
 @router.get("/scan/{token}")
-def get_scan(token: str, current_user: dict = Depends(get_current_user)):
+def get_scan(token: str, type: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
         
         if len(token) < 15:
-            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"]).order("Req_id", desc=True).limit(1).execute()
+            query = sb.table("Leave_request").select("*").eq("AU_id", token)
+            if type and type.lower() == "emergency":
+                query = query.eq("type", "Emergency").in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"])
+            else:
+                query = query.in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"])
+            res = query.order("Req_id", desc=True).limit(1).execute()
         else:
             res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
             
@@ -79,12 +84,17 @@ def get_scan(token: str, current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/scan/{token}")
-def verify_scan(token: str, action: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+def verify_scan(token: str, action: Optional[str] = Query(None), type: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
         
         if len(token) < 15:
-            res = sb.table("Leave_request").select("*").eq("AU_id", token).in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"]).order("Req_id", desc=True).limit(1).execute()
+            query = sb.table("Leave_request").select("*").eq("AU_id", token)
+            if type and type.lower() == "emergency":
+                query = query.eq("type", "Emergency").in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"])
+            else:
+                query = query.in_("Status", ["Approved", "Exit", "Emergency", "Completed", "Warden_Approved"])
+            res = query.order("Req_id", desc=True).limit(1).execute()
         else:
             res = sb.table("Leave_request").select("*").eq("qr_token", token).execute()
         
@@ -129,27 +139,40 @@ def verify_scan(token: str, action: Optional[str] = Query(None), current_user: d
 
         try:
             from datetime import timezone
+            # Cast Guard_id to int if numeric to avoid type mismatch in DB
+            guard_id_raw = current_user.get("user_id", 0) or 0
+            try:
+                guard_id = int(str(guard_id_raw).split("-")[-1]) if "-" in str(guard_id_raw) else int(guard_id_raw)
+            except:
+                guard_id = 0
+            
+            # 🛡️ Fallback to a valid Guard_id if mapping fails or is 0
+            try:
+                check = sb.table("Security_Guard").select("Guard_id").eq("Guard_id", guard_id).execute()
+                if not check.data:
+                    first = sb.table("Security_Guard").select("Guard_id").limit(1).execute()
+                    if first.data:
+                        guard_id = first.data[0]["Guard_id"]
+                    else:
+                        guard_id = 101
+            except:
+                guard_id = 101
+
             gate_log_payload = {
                 "req_id": req_id,
                 "stu_id": au_id,
                 "Action": action,
                 "Timestamp": datetime.now(timezone.utc).isoformat(),
-                "Gaurd_id": current_user.get("user_id", 0) or 0
+                "Gaurd_id": guard_id
             }
             sb.table("Gate_log").insert(gate_log_payload).execute()
             print(f"✅ Gate_log recorded: {action} for {au_id}")
         except Exception as e:
             print(f"❌ Gate_log insert failed: {e}")
 
-        # 🗑️ Auto-delete emergency pass once both exit AND entry are done (Status = Completed)
+        # 🔄 Keep emergency passes in DB to preserve Gate_log history
         if new_status == "Completed":
-            try:
-                pass_type = req.get("type") or ""
-                if pass_type.lower() == "emergency":
-                    sb.table("Leave_request").delete().eq("Req_id", req_id).execute()
-                    print(f"🗑️ Emergency pass {req_id} deleted after completion")
-            except Exception as e:
-                print(f"❌ Failed to delete emergency pass: {e}")
+            print(f"✅ Emergency/Standard pass {req_id} completed. Record preserved for history.")
 
         # Notify Parent
         try:
@@ -237,7 +260,7 @@ def get_recent_logs(current_user: dict = Depends(get_current_user)):
         from datetime import datetime, timedelta, timezone
         six_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
         
-        res = sb.table("Gate_log").select("*, Student:stu_id(Name, Student_image)")\
+        res = sb.table("Gate_log").select("*, Student:stu_id(Name, Student_image, Room_no, Department)")\
             .gte("Timestamp", six_hours_ago)\
             .order("Timestamp", desc=True).limit(20).execute()
         data = res.data or []
@@ -246,6 +269,7 @@ def get_recent_logs(current_user: dict = Depends(get_current_user)):
             student = row.get("Student") or {}
             name = student.get("Name") or "Unknown"
             image = student.get("Student_image")
+            room = student.get("Room_no") or student.get("Department") or ""
             # Generate fallback avatar if no image
             if not image:
                 image = f"https://ui-avatars.com/api/?name={name}&background=2D5AF0&color=fff"
@@ -258,6 +282,7 @@ def get_recent_logs(current_user: dict = Depends(get_current_user)):
             result.append({
                 "student_name": name,
                 "student_image": image,
+                "room": room,
                 "Action": action_val.capitalize(),
                 "action": action_val.capitalize(),
                 "Timestamp": timestamp_val,

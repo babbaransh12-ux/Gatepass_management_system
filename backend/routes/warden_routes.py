@@ -2,6 +2,7 @@ import os
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from datetime import datetime, timedelta, timezone
+import pytz
 from db import get_db
 from services.qr_service import generate_qr
 from routes.auth_routes import get_current_user
@@ -113,25 +114,45 @@ def reject(gatepass_id: int, current_user: dict = Depends(get_current_user)):
 def get_stats(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Requests stats - count all active statuses for approved_today
-        app_res = sb.table("Leave_request").select("Req_id", count='exact').in_("Status", ["Approved", "Warden_Approved"]).gte("created_at", today).execute()
-        rej_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Rejected").gte("created_at", today).execute()
-        # active_passes = all passes where student is off-campus or has valid pass (Approved, Exit, Emergency, Warden_Approved)
-        act_res = sb.table("Leave_request").select("Req_id", count='exact').in_("Status", ["Approved", "Exit", "Emergency", "Warden_Approved"]).execute()
-        pend_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Parent_Approved").execute()
+
+        # NOTE: created_at column is stored as TIME (no date) in Supabase, so we
+        # use leave_date (a proper DATE column, e.g. '2026-04-27') for "today" filtering.
+        IST = pytz.timezone("Asia/Kolkata")
+        today_str = datetime.now(IST).strftime('%Y-%m-%d')  # e.g. '2026-04-27'
+
+        # Approved today: filter by leave_date == today
+        app_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .in_("Status", ["Approved", "Warden_Approved", "Completed", "Exit"]) \
+            .eq("leave_date", today_str).execute()
+
+        # Rejected today: filter by leave_date == today
+        rej_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .eq("Status", "Rejected") \
+            .eq("leave_date", today_str).execute()
+
+        # Active passes = Approved/Exit/Emergency/Warden_Approved (no date filter — any active pass)
+        act_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .in_("Status", ["Approved", "Exit", "Emergency", "Warden_Approved"]).execute()
+
+        # Pending review = Parent_Approved awaiting warden action
+        pend_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .eq("Status", "Parent_Approved").execute()
+
         # Emergency passes count
-        emg_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Emergency").execute()
-        
-        # Occupancy stats — students currently outside campus (Exit status)
-        outside_res = sb.table("Leave_request").select("Req_id", count='exact').eq("Status", "Exit").execute()
+        emg_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .eq("Status", "Emergency").execute()
+
+        # Occupancy: students currently outside (Exit status)
+        outside_res = sb.table("Leave_request").select("Req_id", count='exact') \
+            .eq("Status", "Exit").execute()
         total_students_res = sb.table("Student").select("AU_id", count='exact').execute()
-        
+
         total_students = total_students_res.count if total_students_res.count is not None else 0
         outside_campus = outside_res.count if outside_res.count is not None else 0
         inside_campus = total_students - outside_campus
-        
+
+        print(f"[stats] today={today_str}, approved={app_res.count}, rejected={rej_res.count}, active={act_res.count}")
+
         return {
             "status": "success",
             "approved_today": app_res.count if app_res.count is not None else 0,
@@ -144,13 +165,23 @@ def get_stats(current_user: dict = Depends(get_current_user)):
             "inside_campus": inside_campus
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/rejected-list")
 def get_rejected_list(current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Reason, created_at").eq("Status", "Rejected").order("created_at", desc=True).limit(10).execute()
+        # NOTE: created_at has no date part; use leave_date (proper DATE column) for today filter
+        IST = pytz.timezone("Asia/Kolkata")
+        today_str = datetime.now(IST).strftime('%Y-%m-%d')
+
+        res = sb.table("Leave_request") \
+            .select("Req_id, AU_id, Destination, Reason, leave_date") \
+            .eq("Status", "Rejected") \
+            .eq("leave_date", today_str) \
+            .order("leave_date", desc=True).limit(20).execute()
         
         data = res.data
         for req in data:
@@ -165,12 +196,17 @@ def get_rejected_list(current_user: dict = Depends(get_current_user)):
 def get_history(date: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
     try:
         sb = get_db()
-        if not date:
-            date = datetime.now().strftime('%Y-%m-%d')
-            
-        next_day = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        IST = pytz.timezone("Asia/Kolkata")
         
-        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Status, created_at").gte("created_at", date).lt("created_at", next_day).execute()
+        if not date:
+            date = datetime.now(IST).strftime('%Y-%m-%d')
+
+        # Convert the given IST date to UTC range for Supabase query
+        date_ist = IST.localize(datetime.strptime(date, '%Y-%m-%d'))
+        date_utc_start = date_ist.astimezone(pytz.utc).isoformat()
+        date_utc_end = (date_ist + timedelta(days=1)).astimezone(pytz.utc).isoformat()
+        
+        res = sb.table("Leave_request").select("Req_id, AU_id, Destination, Status, created_at").gte("created_at", date_utc_start).lt("created_at", date_utc_end).execute()
         
         data = res.data
         for req in data:
@@ -300,6 +336,44 @@ def search_student(query: str = Query(""), current_user: dict = Depends(get_curr
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/activity")
+def get_activity(date: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+    """Return approved + rejected leave requests for a given date (defaults to today IST).
+    Useful for the warden to see what happened on any given day."""
+    try:
+        sb = get_db()
+        IST = pytz.timezone("Asia/Kolkata")
+
+        if not date:
+            date = datetime.now(IST).strftime('%Y-%m-%d')
+
+        # Query by leave_date (a proper DATE column stored as IST date string)
+        res = sb.table("Leave_request") \
+            .select("Req_id, AU_id, Destination, Reason, Days, Status, leave_date, created_at") \
+            .in_("Status", ["Approved", "Warden_Approved", "Completed", "Exit", "Rejected"]) \
+            .eq("leave_date", date) \
+            .order("created_at", desc=True) \
+            .execute()
+
+        data = res.data or []
+        result = []
+        for req in data:
+            s_res = sb.table("Student").select("Name, Student_image, AU_id, Department, Gender").eq("AU_id", req.get("AU_id")).execute()
+            student = s_res.data[0] if s_res.data else {}
+            req["student_name"] = student.get("Name") or "Unknown"
+            req["profile_url"] = student.get("Student_image") or f"https://ui-avatars.com/api/?name={student.get('Name', 'S')}&background=2D5AF0&color=fff"
+            req["Department"] = student.get("Department") or ""
+            req["Gender"] = student.get("Gender") or ""
+            result.append(req)
+
+        print(f"✅ /warden/activity → {len(result)} records for date={date}")
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/gate-logs")
 def get_gate_logs(
     date: Optional[str] = Query(None),
@@ -309,15 +383,25 @@ def get_gate_logs(
 ):
     try:
         sb = get_db()
-        query = sb.table("Gate_log").select("*, Student:stu_id(*)")
-        
+        IST = pytz.timezone("Asia/Kolkata")
+        query = sb.table("Gate_log").select("*, Student:stu_id(AU_id, Name, Student_image, Room_no, Department, Gender)")
+
         if date:
-            next_day = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
-            query = query.gte("Timestamp", date).lt("Timestamp", next_day)
-            
+            # Convert IST date to UTC range for Supabase (timestamps stored in UTC)
+            date_ist = IST.localize(datetime.strptime(date, '%Y-%m-%d'))
+            date_utc_start = date_ist.astimezone(pytz.utc).isoformat()
+            date_utc_end = (date_ist + timedelta(days=1)).astimezone(pytz.utc).isoformat()
+            query = query.gte("Timestamp", date_utc_start).lt("Timestamp", date_utc_end)
+        else:
+            # Default: today in IST → UTC
+            today_ist = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_utc_start = today_ist.astimezone(pytz.utc).isoformat()
+            tomorrow_utc_start = (today_ist + timedelta(days=1)).astimezone(pytz.utc).isoformat()
+            query = query.gte("Timestamp", today_utc_start).lt("Timestamp", tomorrow_utc_start)
+
         res = query.order("Timestamp", desc=True).execute()
         data = res.data or []
-        
+
         filtered_data = []
         for log in data:
             student = log.get("Student") or {}
@@ -326,8 +410,11 @@ def get_gate_logs(
             if dept and dept != "All" and student.get("Department") != dept:
                 continue
             filtered_data.append(log)
-            
+
+        print(f"✅ /warden/gate-logs → {len(filtered_data)} records for date={date}")
         return filtered_data
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Gate logs error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

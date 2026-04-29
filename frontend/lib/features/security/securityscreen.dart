@@ -27,6 +27,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
   Map<String, dynamic>? _lastScannedStudent;
   List<dynamic> _recentLogs = [];
   Map<String, dynamic>? _currentEmergency;
+  bool _isLastScanEmergency = false;
   Timer? _pollingTimer;
   Timer? _logRefreshTimer;
   final MobileScannerController scannerController = MobileScannerController();
@@ -84,17 +85,24 @@ class _SecurityScreenState extends State<SecurityScreen> {
      super.dispose();
   }
 
-  Future<void> processQR(String code, {String? action}) async {
+  Future<void> processQR(String code, {String? action, bool isEmergencySearch = false}) async {
     setState(() {
       _isLoading = true;
       scanResult = action == null ? "Fetching Student Identity..." : "Recording ${action.capitalize()}...";
       _lastScannedToken = code;
+      if (action == null) {
+          _isLastScanEmergency = isEmergencySearch;
+      }
     });
 
     try {
       if (action == null) {
         // Step 1: Initial Scan - Just fetch info
-        final response = await ApiClient.get("/qr/scan/$code");
+        String url = "/qr/scan/$code";
+        if (isEmergencySearch) {
+          url += "?type=emergency";
+        }
+        final response = await ApiClient.get(url);
         setState(() {
           if (response != null && response['status'] == 'success') {
              scanResult = "Student Identity Verified";
@@ -107,7 +115,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
         });
       } else {
         // Step 2: Confirmation - Update DB
-        final response = await ApiClient.post("/qr/scan/$code?action=$action", {});
+        String url = "/qr/scan/$code?action=$action";
+        if (_isLastScanEmergency) {
+          url += "&type=emergency";
+        }
+        final response = await ApiClient.post(url, {});
         setState(() {
           if (response != null && response['status'] == 'success') {
              scanResult = "✅ ${response['message']}";
@@ -363,67 +375,223 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 
+  /// Returns a human-readable "X min ago" / "X hr ago" string.
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    return '${diff.inHours}h ago';
+  }
+
   Widget _buildRecentLogsSection() {
+    // ── Filter: keep only entries from the last 3 hours ──────────────────────
+    final cutoff = DateTime.now().subtract(const Duration(hours: 3));
+    final visibleLogs = _recentLogs.where((log) {
+      final String rawAction = (log['Action'] ?? log['action'] ?? '').toString().toLowerCase();
+      if (rawAction != 'exit' && rawAction != 'entry') return false;
+      try {
+        final dt = DateTime.parse(log['Timestamp'] ?? log['timestamp']);
+        return dt.isAfter(cutoff);
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        // ── Header ────────────────────────────────────────────────────────────
+        Row(
           children: [
-            Icon(Icons.access_time_rounded, color: Colors.white38, size: 16),
-            SizedBox(width: 8),
-            Text("RECENT ENTRIES", style: TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            const Icon(Icons.verified_rounded, color: Colors.greenAccent, size: 16),
+            const SizedBox(width: 8),
+            const Text(
+              "RECENT ENTRIES",
+              style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.greenAccent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.3)),
+              ),
+              child: Text(
+                "Last 3 hrs · ${visibleLogs.length} record${visibleLogs.length == 1 ? '' : 's'}",
+                style: const TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.w600),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
+
+        // ── List ──────────────────────────────────────────────────────────────
         SizedBox(
-          height: 140,
-          child: _recentLogs.isEmpty
-              ? const Center(child: Text("No recent entries", style: TextStyle(color: Colors.white24, fontSize: 13)))
+          height: 164,
+          child: visibleLogs.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.history_toggle_off_rounded, color: Colors.white12, size: 32),
+                      const SizedBox(height: 8),
+                      const Text(
+                        "No entries in last 3 hours",
+                        style: TextStyle(color: Colors.white24, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                )
               : ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: _recentLogs.length,
-                  separatorBuilder: (context, index) => const SizedBox(width: 12),
+                  itemCount: visibleLogs.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
-                    final log = _recentLogs[index];
-                    final String rawAction = (log['Action'] ?? log['action'] ?? '').toString().toLowerCase();
-                    // Skip stale records that are not valid gate actions
-                    if (rawAction != 'exit' && rawAction != 'entry') return const SizedBox.shrink();
-                    String time = "";
+                    final log = visibleLogs[index];
+                    final String rawAction =
+                        (log['Action'] ?? log['action'] ?? '').toString().toLowerCase();
+                    final bool isEntry = rawAction == 'entry';
+                    final Color actionColor =
+                        isEntry ? const Color(0xFF4FC3F7) : Colors.orangeAccent;
+                    final Color actionBg =
+                        isEntry ? const Color(0xFF0D47A1) : const Color(0xFF4E2200);
+
+                    DateTime? dt;
+                    String timeLabel = '';
                     try {
-                        DateTime dt = DateTime.parse(log['Timestamp'] ?? log['timestamp']);
-                        time = DateFormat("h:mm a").format(dt);
-                    } catch(e) {}
-                    
-                    bool isEntry = rawAction.contains('entry');
+                      dt = DateTime.parse(log['Timestamp'] ?? log['timestamp']);
+                      timeLabel = _timeAgo(dt);
+                    } catch (_) {}
+
+                    final String studentName =
+                        (log['student_name'] ?? 'Unknown').toString();
+                    final String firstName = studentName.split(' ').first;
+                    final String imageUrl = (log['student_image'] ?? '').toString();
+                    final String room =
+                        (log['room'] ?? log['dept'] ?? '').toString();
 
                     return Container(
-                      width: 110,
-                      padding: const EdgeInsets.all(12),
+                      width: 120,
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.03),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.06),
+                            Colors.white.withOpacity(0.02),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: actionColor.withOpacity(0.25),
+                          width: 1,
+                        ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundImage: NetworkImage(log['student_image']),
-                            backgroundColor: Colors.white10,
+                          // ── Avatar + green tick ──────────────────────────
+                          Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundImage:
+                                    imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                                backgroundColor: Colors.white10,
+                                child: imageUrl.isEmpty
+                                    ? Text(
+                                        firstName.isNotEmpty
+                                            ? firstName[0].toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18),
+                                      )
+                                    : null,
+                              ),
+                              // Acknowledgment tick
+                              Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  color: Colors.greenAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.check_rounded,
+                                  color: Colors.black,
+                                  size: 9,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 7),
+
+                          // ── Name ─────────────────────────────────────────
                           Text(
-                            log['student_name'].split(' ').first,
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            firstName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isEntry ? "ENTRY" : "EXIT",
-                            style: TextStyle(color: isEntry ? Colors.blueAccent : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.w900),
+
+                          if (room.isNotEmpty) ...[  
+                            const SizedBox(height: 2),
+                            Text(
+                              room,
+                              style: const TextStyle(color: Colors.white38, fontSize: 9),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          const SizedBox(height: 6),
+
+                          // ── Action badge ──────────────────────────────────
+                          Container(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: actionBg,
+                              borderRadius: BorderRadius.circular(20),
+                              border:
+                                  Border.all(color: actionColor.withOpacity(0.5)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isEntry
+                                      ? Icons.login_rounded
+                                      : Icons.logout_rounded,
+                                  color: actionColor,
+                                  size: 9,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  isEntry ? 'ENTRY' : 'EXIT',
+                                  style: TextStyle(
+                                    color: actionColor,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          Text(time, style: const TextStyle(color: Colors.white38, fontSize: 9)),
+                          const SizedBox(height: 4),
+
+                          // ── Time-ago label ───────────────────────────────
+                          Text(
+                            timeLabel,
+                            style:
+                                const TextStyle(color: Colors.white38, fontSize: 9),
+                          ),
                         ],
                       ),
                     );
@@ -677,7 +845,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
               final uid = uidController.text.trim();
               if (uid.isNotEmpty) {
                  Navigator.pop(ctx);
-                 processQR(uid);
+                 processQR(uid, isEmergencySearch: true);
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),

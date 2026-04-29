@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'qr_gatepass_screen.dart';
+import 'studentscreen.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/api/api_client.dart';
 import '../../data/repositories/student_repository.dart';
@@ -92,7 +93,11 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pop(context); // Go back to student screen
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const StudentScreen()),
+                (route) => false,
+              );
             },
             child: const Text("Go Back"),
           )

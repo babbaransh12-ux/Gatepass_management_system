@@ -81,7 +81,45 @@ class _GateLogHistoryScreenState extends State<GateLogHistoryScreen> {
                   if (_isLoading)
                     const Center(child: CircularProgressIndicator())
                   else if (_logs.isEmpty)
-                    const Center(child: Text("No records found for the selected filters."))
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.search_off_rounded,
+                                size: 60,
+                                color: Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            const Text(
+                              "No Records Found",
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              "Try adjusting your filters or date selection.",
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   else
                     ..._logs.map((log) => _buildLogItem(log)).toList(),
                 ],
@@ -349,12 +387,12 @@ class _GateLogHistoryScreenState extends State<GateLogHistoryScreen> {
               children: [
                 Row(
                   children: [
-                    Text(student['Name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(student['Name']?.toString() ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                      child: Text(student['AU_id'] ?? "N/A", style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                      child: Text(student['AU_id']?.toString() ?? "N/A", style: const TextStyle(fontSize: 9, color: Colors.grey)),
                     ),
                   ],
                 ),

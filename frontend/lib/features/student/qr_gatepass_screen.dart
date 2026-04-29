@@ -4,6 +4,7 @@ import 'package:screen_protector/screen_protector.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/services/auth_service.dart';
 import '../../data/api/api_client.dart';
+import 'studentscreen.dart';
 
 class QRGatePassScreen extends StatefulWidget {
   final String qrToken;
@@ -67,9 +68,20 @@ class _QRGatePassScreenState extends State<QRGatePassScreen> {
     final bool isCompleted = _isExitDone && _isEntryDone;
 
     return PopScope(
-      canPop: isCompleted, // Only allow exit if pass is completed
+      canPop: false, // Prevent default pop to avoid black screen
       onPopInvoked: (didPop) {
-        if (!didPop && !isCompleted) {
+        if (didPop) return;
+        if (isCompleted) {
+          Future.microtask(() {
+            if (context.mounted) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const StudentScreen()),
+                (route) => false,
+              );
+            }
+          });
+        } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Cannot go back while Gate Pass is active")),
           );
@@ -102,7 +114,13 @@ class _QRGatePassScreenState extends State<QRGatePassScreen> {
                     const Text("You have successfully checked out and back in."),
                     const SizedBox(height: 40),
                     ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (_) => const StudentScreen()),
+                          (route) => false,
+                        );
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2D5AF0),
                         foregroundColor: Colors.white,

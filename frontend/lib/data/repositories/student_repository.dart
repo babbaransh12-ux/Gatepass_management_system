@@ -62,4 +62,11 @@ class StudentRepository {
     return StudentProfile.fromJson(json);
   }
 
+  /// Get the current active pass as raw JSON (used for status-based navigation)
+  Future<Map<String, dynamic>?> getActivePass(String studentId) async {
+    final res = await api.fetchActiveGatepass(studentId);
+    if (res is Map<String, dynamic>) return res;
+    return null;
+  }
+
 }

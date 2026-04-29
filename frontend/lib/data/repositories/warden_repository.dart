@@ -3,7 +3,7 @@ import '../models/leave_request_model.dart';
 
 class WardenRepository {
 
-  final WardenApi api = WardenApi();
+  final WardenApi api = WardenApi(); // public — used by screens directly
 
   /// Fetch pending leave requests for warden dashboard
   Future<List<LeaveRequestModel>> fetchPendingRequests() async {
@@ -66,6 +66,12 @@ class WardenRepository {
     return data.map((e) => LeaveRequestModel.fromJson(e)).toList();
   }
 
+  /// Fetch approved + rejected activity for a specific date
+  Future<List<LeaveRequestModel>> fetchActivity(String date) async {
+    final List<dynamic> data = await api.getActivity(date);
+    return data.map((e) => LeaveRequestModel.fromJson(e)).toList();
+  }
+
   /// Fetch reports for analytics screen
   Future<Map<String, dynamic>> fetchReports(
       String startDate,
@@ -76,6 +82,11 @@ class WardenRepository {
 
     return response;
 
+  }
+
+  /// Fetch gate logs for a specific date
+  Future<List<dynamic>> fetchGateLogs(String date) async {
+    return await api.getGateLogs(date);
   }
 
 }
