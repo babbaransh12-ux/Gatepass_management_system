@@ -7,13 +7,13 @@ import 'package:flutter/material.dart';
 
 import 'loginscreen.dart';
 
-// ── Brand Palette ────────────────────────────────────────────────────────────
+// ── Brand Palette (matches app ThemeData in main.dart) ───────────────────────
 class _C {
-  static const deepNavy   = Color(0xFF0A1628); // background
-  static const navyMid    = Color(0xFF0D2240); // logo fill
-  static const teal       = Color(0xFF00C9A7); // primary accent
-  static const tealDim    = Color(0xFF00A589); // darker teal
-  static const steelBlue  = Color(0xFF5A8A9F); // tagline colour
+  static const deepNavy   = Color(0xFFF8F9FE); // background  — app scaffoldBackgroundColor
+  static const navyMid    = Color(0xFFE8EEFF); // logo fill   — soft blue tint
+  static const teal       = Color(0xFF2D5AF0); // primary accent — app primary blue
+  static const tealDim    = Color(0xFF1A3FD4); // darker blue
+  static const steelBlue  = Color(0xFF6C757D); // tagline colour — app secondary
   static const white      = Color(0xFFFFFFFF);
 }
 
@@ -259,7 +259,7 @@ class _SplashscreenState extends State<SplashScreen>
                       ),
                       child: const Icon(
                         Icons.check,
-                        color: _C.white,
+                        color: Color(0xFFFFFFFF),
                         size: 16,
                       ),
                     ),
@@ -296,9 +296,9 @@ class _SplashscreenState extends State<SplashScreen>
                     height: 1,
                   ),
                   children: [
-                    TextSpan(text: 'e', style: TextStyle(color: _C.white)),
+                    TextSpan(text: 'e', style: TextStyle(color: Color(0xFF1A1C1E))),
                     TextSpan(text: 'Gate', style: TextStyle(color: _C.teal)),
-                    TextSpan(text: 'Pass', style: TextStyle(color: _C.white)),
+                    TextSpan(text: 'Pass', style: TextStyle(color: Color(0xFF1A1C1E))),
                   ],
                 ),
               ),
@@ -359,7 +359,7 @@ class _SplashscreenState extends State<SplashScreen>
           Container(
             height: 2,
             decoration: BoxDecoration(
-              color: _C.white.withValues(alpha: 0.08),
+              color: _C.teal.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Align(
@@ -450,7 +450,7 @@ class _DecorativeCircles extends StatelessWidget {
           height: 240,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: const Color(0xFF0D2240).withValues(alpha: 0.7),
+            color: const Color(0xFF2D5AF0).withValues(alpha: 0.07),
           ),
         ),
       ),
@@ -463,7 +463,7 @@ class _DecorativeCircles extends StatelessWidget {
           height: 260,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: const Color(0xFF0D2240).withValues(alpha: 0.7),
+            color: const Color(0xFF2D5AF0).withValues(alpha: 0.07),
           ),
         ),
       ),
